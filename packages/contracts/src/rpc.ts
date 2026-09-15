@@ -1,6 +1,56 @@
+import {
+  AutomationListInput,
+  AutomationPage,
+  AutomationMutation,
+  AutomationError,
+} from "./workAutomations.ts";
+import { AutomationControlMutation } from "./automationExecution.ts";
+import { WorkDashboardInput, WorkDashboardPage, WorkDashboardError } from "./workDashboard.ts";
+import { WorkActivityInput, WorkActivityPage, WorkActivityError } from "./workActivity.ts";
+import {
+  SlackListInput,
+  SlackReference,
+  SlackMessage,
+  SlackListResult,
+  SlackMutation,
+  SlackMutationResult,
+  SlackAdminInput,
+  SlackAdminResult,
+  SlackError,
+} from "./slack.ts";
+import {
+  NotificationListInput,
+  NotificationPage,
+  NotificationMutation,
+  NotificationError,
+} from "./notifications.ts";
+import { WorkReviewMutation, WorkReviewState } from "./workReviews.ts";
+import {
+  WorkPullRequestMutation,
+  WorkPullRequestState,
+  WorkPullRequestError,
+} from "./workPullRequests.ts";
+import { WorkExecutionMutation, WorkExecutionState, WorkExecutionError } from "./workExecutions.ts";
+import { WorkPlanMutation, WorkPlanState, WorkPlanError } from "./workPlans.ts";
+import {
+  GitHubIssueReference,
+  GitHubIssueDetail,
+  GitHubIssuesListInput,
+  GitHubIssuesListResult,
+  GitHubIssuesMutation,
+  GitHubIssuesError,
+} from "./githubIssues.ts";
 import * as Schema from "effect/Schema";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
+import {
+  WorkItem,
+  WorkItemId,
+  WorkItemError,
+  WorkItemListInput,
+  WorkItemListResult,
+  WorkItemMutation,
+} from "./workItems.ts";
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
   ProviderAuthCancelInput,
@@ -262,6 +312,42 @@ import {
 import { VcsError } from "./vcs.ts";
 
 export const WS_METHODS = {
+  notificationsList: "notifications.list",
+  notificationsMutate: "notifications.mutate",
+  notificationsSubscribe: "notifications.subscribe",
+  workReviewsGet: "workReviews.get",
+  workReviewsMutate: "workReviews.mutate",
+  workReviewsSubscribe: "workReviews.subscribe",
+  workPullRequestsGet: "workPullRequests.get",
+  workPullRequestsMutate: "workPullRequests.mutate",
+  workPullRequestsSubscribe: "workPullRequests.subscribe",
+  workExecutionsGet: "workExecutions.get",
+  workExecutionsMutate: "workExecutions.mutate",
+  workExecutionsSubscribe: "workExecutions.subscribe",
+  workPlansGet: "workPlans.get",
+  workPlansMutate: "workPlans.mutate",
+  workPlansSubscribe: "workPlans.subscribe",
+  workAutomationsControl: "workAutomations.control",
+  workAutomationsList: "workAutomations.list",
+  workAutomationsSubscribe: "workAutomations.subscribe",
+  workAutomationsMutate: "workAutomations.mutate",
+  workDashboardList: "workDashboard.list",
+  workDashboardSubscribe: "workDashboard.subscribe",
+  workActivityList: "workActivity.list",
+  workActivitySubscribe: "workActivity.subscribe",
+  slackGet: "slack.get",
+  slackList: "slack.list",
+  slackSubscribe: "slack.subscribe",
+  slackMutate: "slack.mutate",
+  slackAdmin: "slack.admin",
+  githubIssuesList: "githubIssues.list",
+  githubIssuesGet: "githubIssues.get",
+  githubIssuesMutate: "githubIssues.mutate",
+  githubIssuesSubscribe: "githubIssues.subscribe",
+  workItemsList: "workItems.list",
+  workItemsGet: "workItems.get",
+  workItemsMutate: "workItems.mutate",
+  workItemsSubscribe: "workItems.subscribe",
   // Project registry methods
   projectsList: "projects.list",
   projectsAdd: "projects.add",
@@ -1315,6 +1401,197 @@ const WsSubscribeResourceTelemetryRpc = Rpc.make(WS_METHODS.subscribeResourceTel
 });
 
 export const WsRpcGroup = RpcGroup.make(
+  Rpc.make(WS_METHODS.notificationsList, {
+    payload: NotificationListInput,
+    success: NotificationPage,
+    error: Schema.Union([NotificationError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.notificationsMutate, {
+    payload: NotificationMutation,
+    success: Schema.Void,
+    error: Schema.Union([NotificationError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.notificationsSubscribe, {
+    payload: NotificationListInput,
+    success: NotificationPage,
+    error: Schema.Union([NotificationError, EnvironmentAuthorizationError]),
+    stream: true,
+  }),
+  Rpc.make(WS_METHODS.workReviewsGet, {
+    payload: { id: WorkItemId },
+    success: WorkReviewState,
+    error: Schema.Union([WorkPullRequestError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.workReviewsMutate, {
+    payload: WorkReviewMutation,
+    success: Schema.Void,
+    error: Schema.Union([WorkPullRequestError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.workReviewsSubscribe, {
+    payload: { id: WorkItemId },
+    success: WorkReviewState,
+    stream: true,
+    error: Schema.Union([WorkPullRequestError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.workPullRequestsGet, {
+    payload: { id: WorkItemId },
+    success: WorkPullRequestState,
+    error: Schema.Union([WorkPullRequestError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.workPullRequestsMutate, {
+    payload: WorkPullRequestMutation,
+    success: Schema.Void,
+    error: Schema.Union([WorkPullRequestError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.workPullRequestsSubscribe, {
+    payload: { id: WorkItemId },
+    success: WorkPullRequestState,
+    stream: true,
+    error: Schema.Union([WorkPullRequestError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.workExecutionsGet, {
+    payload: Schema.Struct({ id: WorkItemId }),
+    success: WorkExecutionState,
+    error: Schema.Union([WorkExecutionError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.workExecutionsMutate, {
+    payload: WorkExecutionMutation,
+    success: Schema.Void,
+    error: Schema.Union([WorkExecutionError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.workExecutionsSubscribe, {
+    payload: Schema.Struct({ id: WorkItemId }),
+    success: WorkExecutionState,
+    stream: true,
+    error: Schema.Union([WorkExecutionError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.workPlansGet, {
+    payload: Schema.Struct({ id: WorkItemId }),
+    success: WorkPlanState,
+    error: Schema.Union([WorkPlanError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.workPlansMutate, {
+    payload: WorkPlanMutation,
+    success: Schema.Void,
+    error: Schema.Union([WorkPlanError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.workPlansSubscribe, {
+    payload: Schema.Struct({ id: WorkItemId }),
+    success: WorkPlanState,
+    stream: true,
+    error: Schema.Union([WorkPlanError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.workAutomationsControl, {
+    payload: AutomationControlMutation,
+    success: Schema.Void,
+    error: Schema.Union([AutomationError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.workAutomationsList, {
+    payload: AutomationListInput,
+    success: AutomationPage,
+    error: Schema.Union([AutomationError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.workAutomationsSubscribe, {
+    payload: AutomationListInput,
+    success: AutomationPage,
+    stream: true,
+    error: Schema.Union([AutomationError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.workAutomationsMutate, {
+    payload: AutomationMutation,
+    success: Schema.Void,
+    error: Schema.Union([AutomationError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.workDashboardList, {
+    payload: WorkDashboardInput,
+    success: WorkDashboardPage,
+    error: Schema.Union([WorkDashboardError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.workDashboardSubscribe, {
+    payload: WorkDashboardInput,
+    success: WorkDashboardPage,
+    stream: true,
+    error: Schema.Union([WorkDashboardError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.workActivityList, {
+    payload: WorkActivityInput,
+    success: WorkActivityPage,
+    error: Schema.Union([WorkActivityError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.workActivitySubscribe, {
+    payload: WorkActivityInput,
+    success: WorkActivityPage,
+    stream: true,
+    error: Schema.Union([WorkActivityError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.slackGet, {
+    payload: SlackReference,
+    success: SlackMessage,
+    error: Schema.Union([SlackError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.slackList, {
+    payload: SlackListInput,
+    success: SlackListResult,
+    error: Schema.Union([SlackError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.slackSubscribe, {
+    payload: SlackListInput,
+    success: SlackListResult,
+    stream: true,
+    error: Schema.Union([SlackError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.slackMutate, {
+    payload: SlackMutation,
+    success: SlackMutationResult,
+    error: Schema.Union([SlackError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.slackAdmin, {
+    payload: SlackAdminInput,
+    success: SlackAdminResult,
+    error: Schema.Union([SlackError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.githubIssuesList, {
+    payload: GitHubIssuesListInput,
+    success: GitHubIssuesListResult,
+    error: Schema.Union([GitHubIssuesError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.githubIssuesGet, {
+    payload: GitHubIssueReference,
+    success: GitHubIssueDetail,
+    error: Schema.Union([GitHubIssuesError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.githubIssuesMutate, {
+    payload: GitHubIssuesMutation,
+    success: Schema.Void,
+    error: Schema.Union([GitHubIssuesError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.githubIssuesSubscribe, {
+    payload: GitHubIssuesListInput,
+    success: GitHubIssuesListResult,
+    stream: true,
+    error: Schema.Union([GitHubIssuesError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.workItemsList, {
+    payload: WorkItemListInput,
+    success: WorkItemListResult,
+    error: Schema.Union([WorkItemError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.workItemsGet, {
+    payload: Schema.Struct({ id: WorkItemId }),
+    success: WorkItem,
+    error: Schema.Union([WorkItemError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.workItemsMutate, {
+    payload: WorkItemMutation,
+    success: WorkItem,
+    error: Schema.Union([WorkItemError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.workItemsSubscribe, {
+    payload: WorkItemListInput,
+    success: WorkItemListResult,
+    stream: true,
+    error: Schema.Union([WorkItemError, EnvironmentAuthorizationError]),
+  }),
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,

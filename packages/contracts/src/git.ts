@@ -119,6 +119,13 @@ export const GitRunStackedActionInput = Schema.Struct({
   filePaths: Schema.optional(
     Schema.Array(TrimmedNonEmptyStringSchema).check(Schema.isMinLength(1)),
   ),
+  /** User-reviewed content; skips automatic PR writing when supplied. */
+  pullRequestContent: Schema.optional(
+    Schema.Struct({
+      title: TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(256)),
+      body: Schema.String.check(Schema.isMaxLength(65_536)),
+    }),
+  ),
   /** The thread the action runs beside; a pull request it creates is linked to it. */
   threadId: Schema.optional(ThreadId),
 });

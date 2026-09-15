@@ -113,3 +113,7 @@ export const PREVIEW_POINTER_EVENT_CHANNEL = "desktop:preview-pointer-event";
 export const MAC_PERMISSION_HELPER_CHANNEL = "desktop:mac-permission-helper";
 
 export const CHECK_SYSTEM_PERMISSION_CHANNEL = "desktop:check-system-permission";
+
+export const SHOW_APP_NOTIFICATION_CHANNEL = "desktop:show-app-notification";
+export const CLOSE_APP_NOTIFICATION_CHANNEL = "desktop:close-app-notification";
+export const APP_NOTIFICATION_CLICK_CHANNEL = "desktop:app-notification-click";

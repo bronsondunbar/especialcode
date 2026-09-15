@@ -1,3 +1,4 @@
+import { NotificationsRouteScreen } from "./features/notifications/NotificationsRouteScreen";
 import {
   createPathConfigForStaticNavigation,
   getPathFromState,
@@ -35,6 +36,7 @@ import { ThreadRouteScreen } from "./features/threads/ThreadRouteScreen";
 import { ConnectionsRouteScreen } from "./features/connection/ConnectionsRouteScreen";
 import { ConnectionsNewRouteScreen } from "./features/connection/ConnectionsNewRouteScreen";
 import { HomeRouteScreen } from "./features/home/HomeRouteScreen";
+import { WorkRouteScreen, AutomationSettingsRouteScreen } from "./features/work/WorkRouteScreen";
 import { AddProjectDestinationRoute } from "./features/projects/AddProjectDestinationRoute";
 import { AddProjectLocalRoute } from "./features/projects/AddProjectLocalRoute";
 import { AddProjectRepositoryRoute } from "./features/projects/AddProjectRepositoryRoute";
@@ -230,6 +232,20 @@ const SettingsContentStack = createNativeStackNavigator({
       options: {
         title: "Usage",
       },
+    }),
+    SettingsNotifications: createNativeStackScreen({
+      screen: NotificationsRouteScreen,
+      linking: "notifications",
+      options: { title: "Notifications" },
+    }),
+    SettingsAutomations: createNativeStackScreen({
+      screen: AutomationSettingsRouteScreen,
+      options: { title: "Automations" },
+    }),
+    SettingsWork: createNativeStackScreen({
+      screen: WorkRouteScreen,
+      linking: "work",
+      options: { title: "Work" },
     }),
   },
 });

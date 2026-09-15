@@ -1,3 +1,4 @@
+import { installAppNotifications } from "./methods/appNotifications.ts";
 import * as Effect from "effect/Effect";
 
 import * as DesktopIpc from "./DesktopIpc.ts";
@@ -74,6 +75,7 @@ import { getWslState, setWslBackendEnabled, setWslDistro, setWslOnly } from "./m
 export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers")(function* () {
   const ipc = yield* DesktopIpc.DesktopIpc;
   yield* installNotificationBadge();
+  yield* installAppNotifications();
   yield* PreviewIpc.installPreviewEventForwarding();
 
   yield* ipc.handle(AppActivationIpc.setReady);

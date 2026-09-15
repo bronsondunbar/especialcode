@@ -1,3 +1,4 @@
+import { NotificationBells } from "../notifications/NotificationsRouteScreen";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { createThreadMovePlanner } from "./threadOrder";
 import type {
@@ -1239,6 +1240,7 @@ function ThreadNavigationSidebarPane(
                 scrollEventThrottle={16}
                 showsVerticalScrollIndicator={false}
                 style={styles.threadList}
+                ListHeaderComponent={<NotificationBells />}
                 ListEmptyComponent={listEmpty}
               />
             </GestureDetector>
@@ -1326,6 +1328,7 @@ function ThreadNavigationSidebarPane(
             }
           />
           <View className="flex-row items-center gap-2.5">
+            <NotificationBells />
             <ControlPillMenu actions={listMenuActions} onPressAction={handleListMenuAction}>
               <SidebarFilterButton accessibilityLabel="Filter and sort threads" icon={filterIcon} />
             </ControlPillMenu>

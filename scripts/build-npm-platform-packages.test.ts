@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
+import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -187,7 +188,10 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
         cwd: launcherDir,
         env,
       });
-      assert.equal(passthrough.stdout.trim(), "stub linux-x64 serve --port 1234");
+      assert.equal(
+        passthrough.stdout.trim(),
+        `stub ${yield* HostProcessPlatform}-${yield* HostProcessArchitecture} serve --port 1234`,
+      );
       assert.equal(passthrough.exitCode, 7);
 
       const unsupported = yield* run(process.execPath, ["bin/t3.js", "--version"], {

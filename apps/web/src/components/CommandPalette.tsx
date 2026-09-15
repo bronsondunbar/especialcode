@@ -1827,6 +1827,38 @@ function OpenCommandPaletteDialog(props: {
     },
   });
 
+  actionItems.push({
+    kind: "action",
+    value: "action:dashboard",
+    searchTerms: ["dashboard", "attention", "agents", "command center"],
+    title: "Open developer dashboard",
+    icon: <SettingsIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/work", search: { tab: "dashboard" } });
+    },
+  });
+  actionItems.push({
+    kind: "action",
+    value: "action:work",
+    searchTerms: ["work", "tasks", "inbox", "backlog"],
+    title: "Open work queue",
+    icon: <SettingsIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/work" });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:notifications",
+    searchTerms: ["notifications", "bell", "unread", "attention", "preferences", "alerts"],
+    title: "Open notifications",
+    icon: <SettingsIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/notifications" });
+    },
+  });
+
   // Target the active thread or draft's project, falling back to the first sidebar group.
   const contextualProjectGroup =
     (contextualProjectRef

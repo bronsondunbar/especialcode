@@ -5,6 +5,13 @@
 - [Install T3 Code](./user/install.md)
 - [Messages and context](./user/composer.md)
 - [Working with threads](./user/thread-sidebar.md)
+- [Project management and dashboard](./project-management.md)
+- [Work items and activity](./work-items.md)
+- [GitHub integration](./github-integration.md)
+- [Slack integration](./slack-integration.md)
+- [Agent planning, execution and review](./agent-orchestration.md)
+- [Work notifications](./notifications.md)
+- [Work automations](./automation.md)
 - [Permission modes](./user/permission-modes.md)
 - [Terminal history](./user/terminal.md)
 - [Source control](./user/source-control.md)
@@ -33,6 +40,7 @@ source alone does not explain. Most code changes do not need an internal documen
 [documentation rules](../AGENTS.md#documentation) before adding one.
 
 - [Architecture overview](./internals/overview.md)
+- [Project-management architecture boundaries](./project-management-architecture.md)
 - [Glossary](./internals/glossary.md)
 - [Connection runtime](./internals/connection-runtime.md)
 - [Providers](./internals/providers.md)

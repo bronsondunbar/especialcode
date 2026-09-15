@@ -1,4 +1,5 @@
 import {
+  AuthAccessWriteScope,
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   AuthRelayReadScope,
@@ -13,6 +14,38 @@ import { RPC_REQUIRED_SCOPES, requiredScopeForRpcMethod } from "./RpcAuthorizati
 describe("RPC authorization scopes", () => {
   it("declares exactly one scope for every RPC in the server group", () => {
     expect(new Set(Object.keys(RPC_REQUIRED_SCOPES))).toEqual(new Set(WsRpcGroup.requests.keys()));
+  });
+
+  it("separates Slack inbox access, task operations and administrator-owned credentials", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.slackAdmin)).toBe(AuthAccessWriteScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.slackMutate)).toBe(AuthOrchestrationOperateScope);
+    for (const method of [WS_METHODS.slackGet, WS_METHODS.slackList, WS_METHODS.slackSubscribe])
+      expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationReadScope);
+  });
+
+  it("allows read-only clients to inspect WorkItem activity", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.workAutomationsControl)).toBe(
+      AuthOrchestrationOperateScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.workAutomationsList)).toBe(
+      AuthOrchestrationReadScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.workAutomationsSubscribe)).toBe(
+      AuthOrchestrationReadScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.workAutomationsMutate)).toBe(
+      AuthOrchestrationOperateScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.workDashboardList)).toBe(
+      AuthOrchestrationReadScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.workDashboardSubscribe)).toBe(
+      AuthOrchestrationReadScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.workActivityList)).toBe(AuthOrchestrationReadScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.workActivitySubscribe)).toBe(
+      AuthOrchestrationReadScope,
+    );
   });
 
   it("authorizes background policy reporting and observation deliberately", () => {

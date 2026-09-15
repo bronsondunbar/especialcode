@@ -1,3 +1,16 @@
+import Migration0063 from "./Migrations/063_AutonomousWork.ts";
+import Migration0064 from "./Migrations/064_WorkDashboard.ts";
+import Migration0062 from "./Migrations/062_WorkAutomations.ts";
+import Migration0061 from "./Migrations/061_WorkActivity.ts";
+import Migration0060 from "./Migrations/060_Slack.ts";
+import Migration0059 from "./Migrations/059_NotificationPreferences.ts";
+import Migration0058 from "./Migrations/058_ApplicationNotifications.ts";
+import Migration0057 from "./Migrations/057_WorkReviewCycles.ts";
+import Migration0056 from "./Migrations/056_WorkPullRequests.ts";
+import Migration0054 from "./Migrations/054_WorkPlans.ts";
+import Migration0055 from "./Migrations/055_WorkExecutions.ts";
+import Migration0053 from "./Migrations/053_GitHubIssues.ts";
+import Migration0052 from "./Migrations/052_WorkItems.ts";
 /**
  * Migration runner with an inline loader.
  *
@@ -126,6 +139,19 @@ const migrationEntries = [
   [49, "ProjectionThreadsActiveOrderKey", Migration0049],
   [50, "ProjectionThreadPullRequests", Migration0050],
   [51, "ProjectionThreadMessageContext", Migration0051],
+  [52, "WorkItems", Migration0052],
+  [53, "GitHubIssues", Migration0053],
+  [54, "WorkPlans", Migration0054],
+  [55, "WorkExecutions", Migration0055],
+  [56, "WorkPullRequests", Migration0056],
+  [57, "WorkReviewCycles", Migration0057],
+  [58, "ApplicationNotifications", Migration0058],
+  [59, "NotificationPreferences", Migration0059],
+  [60, "Slack", Migration0060],
+  [61, "WorkActivity", Migration0061],
+  [62, "WorkAutomations", Migration0062],
+  [63, "AutonomousWork", Migration0063],
+  [64, "WorkDashboard", Migration0064],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

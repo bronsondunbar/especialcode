@@ -40,6 +40,17 @@ export type EnvironmentRpcTag = keyof WsRpcProtocolClient & string;
 type RpcMethod<TTag extends EnvironmentRpcTag> = WsRpcProtocolClient[TTag];
 
 export type EnvironmentSubscriptionRpcTag =
+  | typeof WS_METHODS.workAutomationsSubscribe
+  | typeof WS_METHODS.workDashboardSubscribe
+  | typeof WS_METHODS.workActivitySubscribe
+  | typeof WS_METHODS.slackSubscribe
+  | typeof WS_METHODS.githubIssuesSubscribe
+  | typeof WS_METHODS.notificationsSubscribe
+  | typeof WS_METHODS.workReviewsSubscribe
+  | typeof WS_METHODS.workPullRequestsSubscribe
+  | typeof WS_METHODS.workExecutionsSubscribe
+  | typeof WS_METHODS.workPlansSubscribe
+  | typeof WS_METHODS.workItemsSubscribe
   | typeof WS_METHODS.providerAuthSubscribe
   | typeof WS_METHODS.providerInstallSubscribe
   | typeof ORCHESTRATION_WS_METHODS.subscribeShell

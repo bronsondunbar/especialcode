@@ -53,6 +53,7 @@ const encodeCliJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const decodeForgejoPullRequest = Schema.decodeEffect(ForgejoPullRequestSchema);
 
 interface FakeGhScenario {
+  onCreate?: (title: string, body: string) => void;
   prListSequence?: string[];
   prListByHeadSelector?: Record<string, string>;
   prListSequenceByHeadSelector?: Record<string, string[]>;
@@ -376,6 +377,12 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
   const execute: GitHubCli.GitHubCli["Service"]["execute"] = (input) => {
     const args = [...input.args];
     ghCalls.push(args.join(" "));
+    if (args[0] === "pr" && args[1] === "create" && scenario.onCreate) {
+      scenario.onCreate(
+        args[args.indexOf("--title") + 1]!,
+        NodeFS.readFileSync(args[args.indexOf("--body-file") + 1]!, "utf8"),
+      );
+    }
 
     if (scenario.failWith && ghCalls.length > (scenario.failAfterCalls ?? 0)) {
       return Effect.fail(scenario.failWith);
@@ -3358,6 +3365,65 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         action: "create_pr",
       });
 
+      expect(result.commit.status).toBe("skipped_not_requested");
+      expect(result.push.status).toBe("pushed");
+      expect(result.push.setUpstream).toBe(true);
+      expect(result.pr.status).toBe("created");
+      expect(result.pr.number).toBe(303);
+      expect(
+        ghCalls.some((call) =>
+          call.includes("pr create --base main --head feature/create-pr-only"),
+        ),
+      ).toBe(true);
+    }),
+  );
+
+  it.effect("create_pr submits exact reviewed content without invoking the PR writer", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/create-pr-only"]);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      NodeFS.writeFileSync(NodePath.join(repoDir, "create-pr-only.txt"), "create pr\n");
+      yield* runGit(repoDir, ["add", "create-pr-only.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "Create PR only branch"]);
+
+      const reviewed = {
+        title: "Reviewed title",
+        body: "## Review\nLiteral `code` and $HOME\nIssue link",
+      };
+      let captured: typeof reviewed | undefined;
+      const { manager, ghCalls } = yield* makeManager({
+        textGeneration: { generatePrContent: () => Effect.die("PR writer must be skipped") },
+        ghScenario: {
+          onCreate: (title, body) => {
+            captured = { title, body };
+          },
+          prListSequence: [
+            "[]",
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify([
+              {
+                number: 303,
+                title: "Create PR only branch",
+                url: "https://github.com/pingdotgg/codething-mvp/pull/303",
+                baseRefName: "main",
+                headRefName: "feature/create-pr-only",
+              },
+            ]),
+          ],
+        },
+      });
+
+      const result = yield* manager.runStackedAction({
+        actionId: "reviewed",
+        pullRequestContent: reviewed,
+        cwd: repoDir,
+        action: "create_pr",
+      });
+
+      expect(captured).toEqual(reviewed);
       expect(result.commit.status).toBe("skipped_not_requested");
       expect(result.push.status).toBe("pushed");
       expect(result.push.setUpstream).toBe(true);

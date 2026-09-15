@@ -1,3 +1,4 @@
+import { WorkPlanContent } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
@@ -30,6 +31,7 @@ import * as OpenCodeRuntime from "../provider/opencodeRuntime.ts";
 import * as OpenCodeServerOwner from "../provider/OpenCodeServerOwner.ts";
 
 const OpenCodeTextGenerationOperation = Schema.Literals([
+  "generateWorkPlan",
   "generateCommitMessage",
   "generatePrContent",
   "generateBranchName",
@@ -451,7 +453,20 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
       };
     });
 
+  const generateWorkPlan = Effect.fn("OpenCodeTextGeneration.generateWorkPlan")(function* (
+    input: TextGeneration.WorkPlanGenerationInput,
+  ) {
+    return yield* runOpenCodeJson({
+      operation: "generateWorkPlan",
+      cwd: input.cwd,
+      prompt: input.prompt,
+      outputSchemaJson: WorkPlanContent,
+      modelSelection: input.modelSelection,
+    });
+  });
+
   return {
+    generateWorkPlan,
     generateCommitMessage,
     generatePrContent,
     generateBranchName,

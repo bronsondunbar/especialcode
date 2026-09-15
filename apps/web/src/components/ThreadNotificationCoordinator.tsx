@@ -1,8 +1,12 @@
+import {
+  ApplicationNotificationDelivery,
+  ApplicationToastDelivery,
+} from "./notifications/ApplicationNotificationDelivery";
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
-import { useCallback, useEffect, useRef } from "react";
+import { Fragment, useCallback, useEffect, useRef } from "react";
 
 import { getClientSettings, useClientSettings } from "../hooks/useSettings";
 import { useEnvironments } from "../state/environments";
@@ -24,13 +28,19 @@ export function ThreadNotificationCoordinator() {
     (settings) => settings.inAppNotificationsEnabled,
   );
   const pending = useRef(
-    new Map<string, { environmentId: EnvironmentId; notification: Notification }>(),
+    new Map<
+      string,
+      { environmentId: EnvironmentId; notification: Pick<Notification, "tag" | "close"> }
+    >(),
   );
-  const onNotification = useCallback((environmentId: EnvironmentId, notification: Notification) => {
-    pending.current.get(notification.tag)?.notification.close();
-    pending.current.set(notification.tag, { environmentId, notification });
-    setNotificationBadge(pending.current.size);
-  }, []);
+  const onNotification = useCallback(
+    (environmentId: EnvironmentId, notification: Pick<Notification, "tag" | "close">) => {
+      pending.current.get(notification.tag)?.notification.close();
+      pending.current.set(notification.tag, { environmentId, notification });
+      setNotificationBadge(pending.current.size);
+    },
+    [],
+  );
 
   useEffect(() => {
     const activeIds = new Set(environments.map(({ environmentId }) => environmentId));
@@ -70,15 +80,24 @@ export function ThreadNotificationCoordinator() {
     };
   }, [mode]);
 
-  if (mode === "off" && !inAppNotificationsEnabled) return null;
-
-  return environments.map((environment) => (
-    <EnvironmentNotifications
-      key={environment.environmentId}
-      environmentId={environment.environmentId}
-      onNotification={onNotification}
-    />
-  ));
+  return environments.map((environment) =>
+    environment.serverConfig?.environment.capabilities.notificationPreferences ? (
+      <Fragment key={environment.environmentId}>
+        <ApplicationNotificationDelivery
+          key={environment.environmentId}
+          environmentId={environment.environmentId}
+          onNotification={onNotification}
+        />
+        <ApplicationToastDelivery environmentId={environment.environmentId} />
+      </Fragment>
+    ) : mode === "off" && !inAppNotificationsEnabled ? null : (
+      <EnvironmentNotifications
+        key={environment.environmentId}
+        environmentId={environment.environmentId}
+        onNotification={onNotification}
+      />
+    ),
+  );
 }
 
 function EnvironmentNotifications({
@@ -86,7 +105,10 @@ function EnvironmentNotifications({
   onNotification,
 }: {
   environmentId: EnvironmentId;
-  onNotification: (environmentId: EnvironmentId, notification: Notification) => void;
+  onNotification: (
+    environmentId: EnvironmentId,
+    notification: Pick<Notification, "tag" | "close">,
+  ) => void;
 }) {
   const shell = useAtomValue(environmentShell.stateValueAtom(environmentId));
   const mode = useClientSettings((settings) => settings.notificationMode);

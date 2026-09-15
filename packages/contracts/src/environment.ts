@@ -136,6 +136,19 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
       threads, and routes PullRequestRef.host across projects on the same host. Same
       version-skew contract as threadSettlement. */
   threadPullRequests: Schema.optionalKey(Schema.Boolean),
+  workPlans: Schema.optionalKey(Schema.Boolean),
+  notificationPreferences: Schema.optionalKey(Schema.Boolean),
+  notifications: Schema.optionalKey(Schema.Boolean),
+  workReviews: Schema.optionalKey(Schema.Boolean),
+  workPullRequests: Schema.optional(Schema.Boolean),
+  workExecutions: Schema.optionalKey(Schema.Boolean),
+  workItems: Schema.optionalKey(Schema.Boolean),
+  autonomousWork: Schema.optionalKey(Schema.Boolean),
+  workAutomations: Schema.optionalKey(Schema.Boolean),
+  workActivity: Schema.optionalKey(Schema.Boolean),
+  workDashboard: Schema.optionalKey(Schema.Boolean),
+  slack: Schema.optionalKey(Schema.Boolean),
+  githubIssues: Schema.optionalKey(Schema.Boolean),
   pullRequestStackActions: Schema.optionalKey(Schema.Boolean),
   /** The update path clients should offer for this server. Absent on
       servers that must be relaunched manually (dev checkouts, Windows

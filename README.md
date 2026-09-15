@@ -4,6 +4,67 @@ T3 Code is an "agent harness control surface". It enables control of the agents 
 
 Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, and Google Antigravity. If they're set up on your computer, T3 Code can control them.
 
+## Project-management fork
+
+This checkout adds a Work queue and developer dashboard across web, desktop and mobile:
+
+- Organize tasks and import GitHub issues or Slack messages without losing their source context.
+- Generate structured plans, review and approve them, then execute in dedicated worktrees.
+- Create PRs, send review feedback back to the existing agent thread, and track validation and merges.
+- Follow work through a durable notification inbox and explicitly configured automation rules.
+
+Work runs inside the existing environment server and SQLite database. Typed RPCs connect all
+clients; provider execution, checkpoints, Git workflows and PR operations use T3's existing
+services. The [project-management guide](./docs/project-management.md) covers the data model,
+lifecycles and known limits; [architecture boundaries](./docs/project-management-architecture.md)
+explain the separation from the underlying agent runtime.
+
+### Run this fork locally
+
+The published upstream package and releases below may not contain these additions. To run
+this checkout, use Node matching `package.json` (`^24.13.1`), [install Vite+](#install-vp), then:
+
+```sh
+vp i
+vp run dev
+```
+
+Open the pairing URL printed by the runner, configure a project/provider, and open **Work**.
+Use `vp run dev:desktop` for Electron; see the [mobile README](./apps/mobile/README.md) for native
+development. The [development runbook](./docs/operations/development.md) explains isolated state
+and remote pairing. Leave `VITE_HTTP_URL` and `VITE_WS_URL` unset in development.
+
+### Configure Work
+
+GitHub uses the environment machine's existing GitHub CLI account. Run `gh auth login` there,
+then track repositories under **Work → GitHub Issues**. See [GitHub setup](./docs/github-integration.md).
+
+For Slack, register an HTTPS OAuth callback and set these variables on the server before
+restarting it. Values below are placeholders:
+
+```dotenv
+T3CODE_SLACK_CLIENT_ID=<app-client-id>
+T3CODE_SLACK_CLIENT_SECRET=<app-client-secret>
+T3CODE_SLACK_REDIRECT_URI=https://your-server.example/api/integrations/slack/callback
+```
+
+Then connect the workspace and select shared channels. Keep credentials out of source control
+and client configuration. [Slack setup](./docs/slack-integration.md#connect-your-slack-app) lists
+the required read scopes and explains which account content becomes visible to the environment.
+
+Configure inbox categories and delivery in **Notifications → Notification preferences**, then
+enable native alerts on each device. [Notifications](./docs/notifications.md) explains reconnect
+and mobile delivery limits. No extra environment variables are needed for Work notifications.
+
+### Automation safety
+
+Rules start disabled. Automatic execution requires explicit rule trust, a current approved
+plan, repository/label/provider allowlists and concurrency limits. Provider approvals remain
+active; validation is required by default. Validation and project setup commands execute on
+the environment host, so review them before trusting a rule. Rules cannot approve plans or
+merge PRs. **Stop all automations** persists a pause and requests stops for automation-owned
+work; resume handles future events. See [Automations](./docs/automation.md).
+
 ## "Wait, what are you selling me?"
 
 Nothing. We built T3 Code because we wanted the best possible development experience with agents. We were inspired by existing solutions like the Codex desktop app, Conductor, Claude Desktop and Cursor Glass, but none met our bar.
@@ -77,6 +138,9 @@ We are (mostly) not accepting contributions yet. Small fixes may be considered. 
 Full docs live in [docs/](./docs). There's no docs site yet.
 
 - [Install and first run](./docs/user/install.md)
+- [Project management and local setup](./docs/project-management.md)
+- [Work items and activity](./docs/work-items.md)
+- [Planning, execution and review cycles](./docs/agent-orchestration.md)
 - [Permission modes](./docs/user/permission-modes.md)
 - [Keyboard shortcuts](./docs/user/keybindings.md)
 - [Project settings](./docs/user/project-settings.md)

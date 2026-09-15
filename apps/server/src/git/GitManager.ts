@@ -1973,6 +1973,7 @@ export const make = Effect.gen(function* () {
     cwd: string,
     fallbackBranch: string | null,
     emit: GitActionProgressEmitter,
+    reviewedContent?: GitRunStackedActionInput["pullRequestContent"],
   ) {
     const provider = yield* sourceControlProvider(cwd);
     const terms = getChangeRequestTerminologyForKind(provider.kind);
@@ -2016,25 +2017,29 @@ export const make = Effect.gen(function* () {
       phase: "pr",
       label: `Generating ${terms.shortLabel} content...`,
     });
-    const baseRangeRef = yield* resolveBaseRangeRef(cwd, baseBranch);
-    const rangeContext = yield* gitCore.readRangeContext(cwd, baseRangeRef);
-    const policy = yield* resolveStylePolicy(cwd, settings);
-    const changeRequestTemplate =
-      settings.style.followChangeRequestTemplates && provider.kind === "github"
-        ? Option.getOrUndefined(yield* detectPrTemplate(cwd, baseRangeRef, gitCore.execute))
-        : undefined;
+    const generated =
+      reviewedContent ??
+      (yield* Effect.gen(function* () {
+        const baseRangeRef = yield* resolveBaseRangeRef(cwd, baseBranch);
+        const rangeContext = yield* gitCore.readRangeContext(cwd, baseRangeRef);
+        const policy = yield* resolveStylePolicy(cwd, settings);
+        const changeRequestTemplate =
+          settings.style.followChangeRequestTemplates && provider.kind === "github"
+            ? Option.getOrUndefined(yield* detectPrTemplate(cwd, baseRangeRef, gitCore.execute))
+            : undefined;
 
-    const generated = yield* textGeneration.generatePrContent({
-      cwd,
-      baseBranch,
-      headBranch: headContext.headBranch,
-      commitSummary: limitContext(rangeContext.commitSummary, 20_000),
-      diffSummary: limitContext(rangeContext.diffSummary, 20_000),
-      diffPatch: limitContext(rangeContext.diffPatch, 60_000),
-      ...(changeRequestTemplate ? { changeRequestTemplate } : {}),
-      ...(policy ? { policy } : {}),
-      modelSelection: settings.modelSelection,
-    });
+        return yield* textGeneration.generatePrContent({
+          cwd,
+          baseBranch,
+          headBranch: headContext.headBranch,
+          commitSummary: limitContext(rangeContext.commitSummary, 20_000),
+          diffSummary: limitContext(rangeContext.diffSummary, 20_000),
+          diffPatch: limitContext(rangeContext.diffPatch, 60_000),
+          ...(changeRequestTemplate ? { changeRequestTemplate } : {}),
+          ...(policy ? { policy } : {}),
+          modelSelection: settings.modelSelection,
+        });
+      }));
 
     const bodyFile = path.join(
       tempDir,
@@ -2760,7 +2765,13 @@ export const make = Effect.gen(function* () {
               .pipe(
                 Effect.tap(() => Ref.set(currentPhase, Option.some("pr"))),
                 Effect.flatMap(() =>
-                  runPrStep(textGenerationSettings, input.cwd, currentBranch, progress.emit),
+                  runPrStep(
+                    textGenerationSettings,
+                    input.cwd,
+                    currentBranch,
+                    progress.emit,
+                    input.pullRequestContent,
+                  ),
                 ),
               )
           : { status: "skipped_not_requested" as const };

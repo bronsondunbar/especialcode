@@ -1,6 +1,8 @@
+import { NotificationBells } from "../notifications/NotificationBells";
 import {
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
+  ClipboardListIcon,
   GitPullRequestIcon,
   SettingsIcon,
 } from "lucide-react";
@@ -141,11 +143,15 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
         ? "settings"
         : /^\/projects\/[^/]+\/?$/.test(location.pathname)
           ? "project-settings"
-          : location.pathname === "/usage"
-            ? "usage"
-            : location.pathname === "/pull-requests"
-              ? "pull-requests"
-              : null,
+          : location.pathname === "/notifications"
+            ? "notifications"
+            : location.pathname === "/work"
+              ? "work"
+              : location.pathname === "/usage"
+                ? "usage"
+                : location.pathname === "/pull-requests"
+                  ? "pull-requests"
+                  : null,
   });
   const { environments } = useEnvironments();
   // The page reads every connected server, so one of them offering pull requests is enough for
@@ -197,6 +203,18 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
         </SidebarMenuItem>
       ) : (
         <>
+          {environments.some(
+            (environment) => environment.serverConfig?.environment.capabilities.workItems === true,
+          ) && (
+            <SidebarUtilityItem
+              icon={<ClipboardListIcon />}
+              label="Work"
+              onClick={() => {
+                closeMobileSidebar();
+                void navigate({ to: "/work" });
+              }}
+            />
+          )}
           <SidebarUtilityItem
             icon={<SettingsIcon />}
             label="Settings"
@@ -216,6 +234,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
           />
         </>
       )}
+      <NotificationBells />
       <SidebarUpdatePill />
     </SidebarMenu>
   );

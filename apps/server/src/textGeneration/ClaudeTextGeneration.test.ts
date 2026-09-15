@@ -260,6 +260,41 @@ function withFakeClaudeEnv<A, E, R>(
 }
 
 it.layer(ClaudeTextGenerationTestLayer)("ClaudeTextGeneration", (it) => {
+  it.effect("generates a structured work plan with tools, hooks, skills and MCP disabled", () =>
+    withFakeClaudeEnv(
+      {
+        output: JSON.stringify({
+          structured_output: {
+            summary: "Plan feature",
+            proposedChanges: [],
+            affectedFiles: ["src/app.ts"],
+            steps: ["Implement"],
+            tests: ["Unit tests"],
+            risks: [],
+            questions: [],
+            complexity: "low",
+          },
+        }),
+        stdinMustContain: "Do not modify code",
+      },
+      (generation) =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "t3-plan-claude-" });
+          const result = yield* generation.generateWorkPlan!({
+            cwd,
+            prompt: "Do not modify code. Inspect the supplied snapshots.",
+            modelSelection: createModelSelection(
+              ProviderInstanceId.make("claude"),
+              SYNTHETIC_CLAUDE_STANDARD_MODEL,
+            ),
+          });
+          expect(result.summary).toBe("Plan feature");
+          expect(result.affectedFiles).toEqual(["src/app.ts"]);
+        }),
+    ),
+  );
+
   it.effect("forwards Claude thinking settings without passing unsupported effort", () =>
     withFakeClaudeEnv(
       {

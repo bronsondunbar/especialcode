@@ -10,6 +10,12 @@ import type { TextGenerationPolicy } from "./TextGenerationPolicy.ts";
 
 export type TextGenerationProvider = "codex" | "claudeAgent" | "cursor" | "grok" | "opencode";
 
+export interface WorkPlanGenerationInput {
+  cwd: string;
+  prompt: string;
+  modelSelection: ModelSelection;
+}
+
 export interface CommitMessageGenerationInput {
   cwd: string;
   branch: string | null;
@@ -79,6 +85,10 @@ export interface ThreadTitleGenerationResult {
 export class TextGeneration extends Context.Service<
   TextGeneration,
   {
+    /** Optional: only drivers with an enforced read-only or tool-free generation path expose planning. */
+    readonly generateWorkPlan?: (
+      input: WorkPlanGenerationInput,
+    ) => Effect.Effect<import("@t3tools/contracts").WorkPlanContent, TextGenerationError>;
     /**
      * Generate a commit message from staged change context.
      */

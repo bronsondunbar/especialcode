@@ -1,3 +1,4 @@
+import { WorkPlanContent } from "@t3tools/contracts";
 /**
  * ClaudeTextGeneration – Text generation layer using the Claude CLI.
  *
@@ -102,7 +103,8 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
-      | "generateThreadTitle",
+      | "generateThreadTitle"
+      | "generateWorkPlan",
     value: unknown,
     detail: string,
   ): Effect.Effect<string, TextGenerationError> =>
@@ -132,7 +134,8 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
-      | "generateThreadTitle";
+      | "generateThreadTitle"
+      | "generateWorkPlan";
     cwd: string;
     prompt: string;
     outputSchemaJson: S;
@@ -408,7 +411,20 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
       };
     });
 
+  const generateWorkPlan = Effect.fn("ClaudeTextGeneration.generateWorkPlan")(function* (
+    input: TextGeneration.WorkPlanGenerationInput,
+  ) {
+    return yield* runClaudeJson({
+      operation: "generateWorkPlan",
+      cwd: input.cwd,
+      prompt: input.prompt,
+      outputSchemaJson: WorkPlanContent,
+      modelSelection: input.modelSelection,
+    });
+  });
+
   return {
+    generateWorkPlan,
     generateCommitMessage,
     generatePrContent,
     generateBranchName,

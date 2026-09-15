@@ -1,4 +1,5 @@
 export * from "./baseSchemas.ts";
+export * from "./workItems.ts";
 export * from "./assistantCitations.ts";
 export * from "./composerContext.ts";
 export * from "./composerContextClipboard.ts";
@@ -43,3 +44,24 @@ export * from "./resourceTelemetry.ts";
 export * from "./usage.ts";
 export * from "./rpc.ts";
 export * from "./worktreeSetup.ts";
+
+export * from "./githubIssues.ts";
+
+export * from "./workPlans.ts";
+
+export * from "./workExecutions.ts";
+
+export * from "./workPullRequests.ts";
+
+export * from "./workReviews.ts";
+
+export * from "./notifications.ts";
+
+export * from "./slack.ts";
+
+export * from "./workActivity.ts";
+export * from "./workDashboard.ts";
+export * from "./workAutomations.ts";
+export * from "./automationExecution.ts";
+
+export * from "./externalSync.ts";

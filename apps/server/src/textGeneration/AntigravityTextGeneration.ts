@@ -1,3 +1,4 @@
+import { WorkPlanContent } from "@t3tools/contracts";
 import {
   type ModelSelection,
   type ProviderSetupError,
@@ -401,7 +402,19 @@ export const makeAntigravityTextGeneration = Effect.fn("makeAntigravityTextGener
       return { title: sanitizeThreadTitle(generated.title) };
     });
 
+  const generateWorkPlan = Effect.fn("AntigravityTextGeneration.generateWorkPlan")(function* (
+    input: TextGeneration.WorkPlanGenerationInput,
+  ) {
+    return yield* runAntigravityJson({
+      operation: "generateWorkPlan",
+      prompt: input.prompt,
+      outputSchema: WorkPlanContent,
+      modelSelection: input.modelSelection,
+    });
+  });
+
   return {
+    generateWorkPlan,
     generateCommitMessage,
     generatePrContent,
     generateBranchName,

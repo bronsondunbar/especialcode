@@ -29,7 +29,7 @@ export function applyNotificationBadge(
         if (!window.isDestroyed()) {
           window.setOverlayIcon(
             overlay?.isEmpty() ? null : overlay,
-            count > 0 ? `${count} threads with new notifications` : "",
+            count > 0 ? `${count} new notifications` : "",
           );
         }
       }

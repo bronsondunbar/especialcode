@@ -42,6 +42,7 @@ import {
   TurnId,
   UsageLimitSourceId,
   WS_METHODS,
+  WorkItemId,
   WsRpcGroup,
   EditorId,
 } from "@t3tools/contracts";
@@ -969,6 +970,7 @@ const buildAppUnderTest = (options?: {
               }),
             dispatch: () => Effect.succeed({ sequence: 0 }),
             streamDomainEvents: Stream.empty,
+            subscribeDomainEvents: Effect.succeed(Stream.never),
             latestSequence: Effect.succeed(0),
             ...options?.layers?.orchestrationEngine,
           }),
@@ -1691,6 +1693,272 @@ const EMPTY_DEVICE_STATE: DeviceServiceState = {
 };
 
 it.layer(NodeServices.layer)("server router seam", (it) => {
+  it.effect(
+    "work items share persisted state across clients and enforce read-only RPC access",
+    () =>
+      Effect.gen(function* () {
+        yield* buildAppUnderTest();
+        const wsUrl = yield* getWsServerUrl("/ws");
+        const id = WorkItemId.make("rpc-work-item");
+        yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            client[WS_METHODS.workItemsMutate]({
+              kind: "create",
+              commandId: "rpc-work-create",
+              id,
+              source: "manual",
+              title: "RPC task",
+              fields: {},
+            }),
+          ),
+        );
+        const token = yield* exchangeAccessToken(defaultDesktopBootstrapToken, {
+          scope: "orchestration:read",
+        });
+        const ticketResponse = yield* HttpClient.post("/api/auth/websocket-ticket", {
+          headers: { authorization: `Bearer ${token.body.access_token ?? ""}` },
+        });
+        const { ticket } = yield* responseJsonEffect<{ readonly ticket: string }>(ticketResponse);
+        const readUrl = `${yield* getWsServerUrl("/ws", { authenticated: false })}?wsTicket=${encodeURIComponent(ticket)}`;
+        yield* Effect.scoped(
+          withWsRpcClient(readUrl, (client) =>
+            Effect.gen(function* () {
+              const item = yield* client[WS_METHODS.workItemsGet]({ id });
+              assert.equal(item.title, "RPC task");
+              const prState = yield* client[WS_METHODS.workPullRequestsGet]({ id });
+              assert.equal(prState.item.id, id);
+              const subscribedPr = yield* client[WS_METHODS.workPullRequestsSubscribe]({ id }).pipe(
+                Stream.take(1),
+                Stream.runCollect,
+              );
+              assert.equal(subscribedPr[0]?.item.id, id);
+              const deniedPr = yield* client[WS_METHODS.workPullRequestsMutate]({
+                kind: "create",
+                id,
+                commandId: "denied-pr",
+                expectedRevision: 1,
+                content: { title: "PR", body: "Review" },
+              }).pipe(Effect.flip);
+              assert.equal(deniedPr._tag, "EnvironmentAuthorizationError");
+              const deniedEmergency = yield* client[WS_METHODS.workAutomationsControl]({
+                kind: "stop_all",
+              }).pipe(Effect.flip);
+              assert.equal(deniedEmergency._tag, "EnvironmentAuthorizationError");
+              const dashboard = yield* client[WS_METHODS.workDashboardList]({ section: "inbox" });
+              assert.equal(dashboard.sections[0]?.items[0]?.id, id);
+              const dashboardStream = yield* client[WS_METHODS.workDashboardSubscribe]({
+                section: "inbox",
+              }).pipe(Stream.runHead, Effect.map(Option.getOrThrow));
+              assert.equal(dashboardStream.sections[0]?.total, 1);
+              const automationPage = yield* client[WS_METHODS.workAutomationsList]({});
+              assert.equal(automationPage.rules.length, 0);
+              const automationStream = yield* client[WS_METHODS.workAutomationsSubscribe]({}).pipe(
+                Stream.runHead,
+                Effect.map(Option.getOrThrow),
+              );
+              assert.equal(automationStream.total, 0);
+              const deniedAutomation = yield* client[WS_METHODS.workAutomationsMutate]({
+                kind: "save",
+                id: "denied-rule",
+                expectedRevision: 0,
+                value: {
+                  name: "Denied",
+                  enabled: true,
+                  trigger: "plan_approved",
+                  conditions: {},
+                  actions: [{ kind: "notify", message: "Denied" }],
+                },
+              }).pipe(Effect.flip);
+              assert.equal(deniedAutomation._tag, "EnvironmentAuthorizationError");
+              const notificationPage = yield* client[WS_METHODS.notificationsList]({});
+              assert.equal(notificationPage.unreadCount, 0);
+              const subscribedNotifications = yield* client[WS_METHODS.notificationsSubscribe](
+                {},
+              ).pipe(Stream.runHead, Effect.map(Option.getOrThrow));
+              assert.equal(subscribedNotifications.unreadCount, 0);
+              const deniedNotification = yield* client[WS_METHODS.notificationsMutate]({
+                kind: "read_all",
+                throughSequence: 0,
+              }).pipe(Effect.flip);
+              assert.equal(deniedNotification._tag, "EnvironmentAuthorizationError");
+              const reviewState = yield* client[WS_METHODS.workReviewsGet]({ id });
+              assert.equal(reviewState.item.id, id);
+              const subscribedReview = yield* client[WS_METHODS.workReviewsSubscribe]({ id }).pipe(
+                Stream.runHead,
+                Effect.map(Option.getOrThrow),
+              );
+              assert.equal(subscribedReview.item.id, id);
+              const deniedReview = yield* client[WS_METHODS.workReviewsMutate]({
+                kind: "send",
+                id,
+                commandId: "denied-review",
+                expectedWorkItemRevision: 1,
+                expectedReviewRevision: 1,
+                guidance: "Fix",
+                validationCommands: ["npm test"],
+              }).pipe(Effect.flip);
+              assert.equal(deniedReview._tag, "EnvironmentAuthorizationError");
+              const executionState = yield* client[WS_METHODS.workExecutionsGet]({ id });
+              assert.equal(executionState.execution, null);
+              const subscribedExecution = yield* client[WS_METHODS.workExecutionsSubscribe]({
+                id,
+              }).pipe(Stream.runHead, Effect.map(Option.getOrThrow));
+              assert.equal(subscribedExecution.item.id, id);
+              const deniedExecution = yield* client[WS_METHODS.workExecutionsMutate]({
+                kind: "start",
+                commandId: "denied-execution",
+                id,
+                expectedWorkItemRevision: 1,
+                expectedPlanRevision: 1,
+                modelSelection: {
+                  instanceId: ProviderInstanceId.make("codex"),
+                  model: "test-model",
+                },
+                validationCommands: ["npm test"],
+              }).pipe(Effect.flip);
+              assert.equal(deniedExecution._tag, "EnvironmentAuthorizationError");
+              const planState = yield* client[WS_METHODS.workPlansGet]({ id });
+              assert.equal(planState.plan, null);
+              const subscribedPlan = yield* client[WS_METHODS.workPlansSubscribe]({ id }).pipe(
+                Stream.runHead,
+                Effect.map(Option.getOrThrow),
+              );
+              assert.equal(subscribedPlan.item.id, id);
+              const deniedPlanning = yield* client[WS_METHODS.workPlansMutate]({
+                kind: "start",
+                commandId: "denied-plan",
+                id,
+                expectedWorkItemRevision: 1,
+                modelSelection: {
+                  instanceId: ProviderInstanceId.make("codex"),
+                  model: "test-model",
+                },
+              }).pipe(Effect.flip);
+              assert.equal(deniedPlanning._tag, "EnvironmentAuthorizationError");
+
+              const list = yield* client[WS_METHODS.workItemsSubscribe]({}).pipe(
+                Stream.runHead,
+                Effect.map(Option.getOrThrow),
+              );
+              assert.equal(list.total, 1);
+              const activity = yield* client[WS_METHODS.workActivitySubscribe]({ id }).pipe(
+                Stream.filter((page) => page.total > 0),
+                Stream.runHead,
+                Effect.map(Option.getOrThrow),
+              );
+              assert.equal(
+                activity.items.some((event) => event.kind === "work_item.create"),
+                true,
+              );
+              assert.equal(
+                (yield* client[WS_METHODS.workActivityList]({ id })).total,
+                activity.total,
+              );
+              const denied = yield* client[WS_METHODS.workItemsMutate]({
+                kind: "archive",
+                commandId: "denied",
+                id,
+                expectedRevision: 1,
+                archived: true,
+              }).pipe(Effect.flip);
+              assert.equal(denied._tag, "EnvironmentAuthorizationError");
+              assert.equal((yield* client[WS_METHODS.workItemsGet]({ id })).archivedAt, null);
+            }),
+          ),
+        );
+      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+  it.effect(
+    "GitHub issue configuration is shared across clients and read-only sessions cannot sync or import",
+    () =>
+      Effect.gen(function* () {
+        yield* buildAppUnderTest();
+        const wsUrl = yield* getWsServerUrl("/ws");
+        const repo = { host: "github.com", repository: "example/repo" };
+        yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            client[WS_METHODS.githubIssuesMutate]({
+              ...repo,
+              kind: "configure",
+              projectId: null,
+              importLabels: ["ready"],
+            }),
+          ),
+        );
+        const token = yield* exchangeAccessToken(defaultDesktopBootstrapToken, {
+          scope: "orchestration:read",
+        });
+        const response = yield* HttpClient.post("/api/auth/websocket-ticket", {
+          headers: { authorization: `Bearer ${token.body.access_token ?? ""}` },
+        });
+        const { ticket } = yield* responseJsonEffect<{ readonly ticket: string }>(response);
+        const readUrl = `${yield* getWsServerUrl("/ws", { authenticated: false })}?wsTicket=${encodeURIComponent(ticket)}`;
+        yield* Effect.scoped(
+          withWsRpcClient(readUrl, (client) =>
+            Effect.gen(function* () {
+              const list = yield* client[WS_METHODS.githubIssuesSubscribe]({}).pipe(
+                Stream.runHead,
+                Effect.map(Option.getOrThrow),
+              );
+              assert.equal(list.repositories[0]?.repository, "example/repo");
+              assert.equal((yield* client[WS_METHODS.githubIssuesList]({})).repositories.length, 1);
+              for (const kind of ["sync", "untrack", "import", "refresh"] as const) {
+                const denied = yield* client[WS_METHODS.githubIssuesMutate]({
+                  ...repo,
+                  kind,
+                  number: 42,
+                }).pipe(Effect.flip);
+                assert.equal(denied._tag, "EnvironmentAuthorizationError");
+              }
+              assert.equal((yield* client[WS_METHODS.githubIssuesList]({})).repositories.length, 1);
+            }),
+          ),
+        );
+      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+  it.effect("Slack RPCs enforce read-only access and reject forged OAuth callbacks", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+      const token = yield* exchangeAccessToken(defaultDesktopBootstrapToken, {
+        scope: "orchestration:read",
+      });
+      const response = yield* HttpClient.post("/api/auth/websocket-ticket", {
+        headers: { authorization: `Bearer ${token.body.access_token ?? ""}` },
+      });
+      const { ticket } = yield* responseJsonEffect<{ readonly ticket: string }>(response);
+      const url = `${yield* getWsServerUrl("/ws", { authenticated: false })}?wsTicket=${encodeURIComponent(ticket)}`;
+      yield* Effect.scoped(
+        withWsRpcClient(url, (client) =>
+          Effect.gen(function* () {
+            const inbox = yield* client[WS_METHODS.slackSubscribe]({}).pipe(
+              Stream.runHead,
+              Effect.map(Option.getOrThrow),
+            );
+            assert.equal(inbox.total, 0);
+            assert.equal((yield* client[WS_METHODS.slackList]({})).configured, false);
+            assert.equal(
+              (yield* client[WS_METHODS.slackAdmin]({ kind: "connect" }).pipe(Effect.flip))._tag,
+              "EnvironmentAuthorizationError",
+            );
+            assert.equal(
+              (yield* client[WS_METHODS.slackMutate]({
+                kind: "sync",
+                workspaceId: "T123",
+                channelId: "C123",
+              }).pipe(Effect.flip))._tag,
+              "EnvironmentAuthorizationError",
+            );
+          }),
+        ),
+      );
+      const callback = yield* HttpClient.get(
+        "/api/integrations/slack/callback?state=forged&code=secret-code",
+      );
+      assert.equal(callback.status, 400);
+      assert.equal(callback.headers["cache-control"], "no-store");
+      assert.equal((yield* callback.text).includes("secret-code"), false);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
   it.effect("parks HTTP ingress until command readiness", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;

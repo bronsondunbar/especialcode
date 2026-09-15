@@ -1,3 +1,21 @@
+import * as WorkDashboard from "./workItems/WorkDashboardService.ts";
+import * as WorkAutomations from "./automations/WorkAutomationService.ts";
+import * as WorkActivity from "./workItems/WorkActivityService.ts";
+import * as Slack from "./integrations/slack/SlackService.ts";
+import * as SlackAdapter from "./integrations/slack/SlackAdapter.ts";
+import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
+import * as Notifications from "./notifications/NotificationService.ts";
+import * as ApplicationEvents from "./notifications/ApplicationEventService.ts";
+import * as WorkReviews from "./workItems/WorkReviewService.ts";
+import * as WorkPullRequests from "./workItems/WorkPullRequestService.ts";
+import * as ProcessRunner from "./processRunner.ts";
+import * as WorkExecutions from "./workItems/WorkExecutionService.ts";
+import * as WorkExecutionRuntime from "./workItems/WorkExecutionRuntime.ts";
+import * as WorkPlans from "./workItems/WorkPlanService.ts";
+import * as WorkPlanGenerator from "./workItems/WorkPlanGenerator.ts";
+import * as GitHubIssues from "./integrations/github/GitHubIssuesService.ts";
+import * as GitHubIssuesAdapter from "./integrations/github/GitHubIssuesAdapter.ts";
+import * as SourceControlRateLimit from "./sourceControl/SourceControlRateLimit.ts";
 import {
   sameUsageLimitCommandCoverage,
   withUsageLimitsCommands,
@@ -149,6 +167,7 @@ import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
+import * as WorkItems from "./workItems/WorkItemService.ts";
 import { listLinkedPullRequestThreads } from "./pullRequest/linkedThreads.ts";
 import { pullRequestSyncKey } from "./pullRequest/pullRequestSyncKey.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -637,6 +656,17 @@ const makeWsRpcLayer = (
       const sourceControlRepositories =
         yield* SourceControlRepositoryService.SourceControlRepositoryService;
       const pullRequests = yield* PullRequestService.PullRequestService;
+      const workItems = yield* WorkItems.WorkItemService;
+      const workPlans = yield* WorkPlans.WorkPlanService;
+      const workReviews = yield* WorkReviews.WorkReviewService;
+      const notifications = yield* Notifications.NotificationService;
+      const workAutomations = yield* WorkAutomations.WorkAutomationService;
+      const workActivity = yield* WorkActivity.WorkActivityService;
+      const workDashboard = yield* WorkDashboard.WorkDashboardService;
+      const workPullRequests = yield* WorkPullRequests.WorkPullRequestService;
+      const workExecutions = yield* WorkExecutions.WorkExecutionService;
+      const githubIssues = yield* GitHubIssues.GitHubIssuesService;
+      const slack = yield* Slack.SlackService;
       const withPullRequestViewer = pullRequests.withRoutingCredential;
       const pullRequestSync = yield* PullRequestSyncReactor.PullRequestSyncReactor;
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
@@ -1610,6 +1640,80 @@ const makeWsRpcLayer = (
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
       return WsRpcGroup.of({
+        [WS_METHODS.workAutomationsControl]: (input) =>
+          observeRpcEffect(WS_METHODS.workAutomationsControl, workAutomations.control(input)),
+        [WS_METHODS.workAutomationsList]: (input) =>
+          observeRpcEffect(WS_METHODS.workAutomationsList, workAutomations.list(input)),
+        [WS_METHODS.workAutomationsSubscribe]: (input) =>
+          observeRpcStream(WS_METHODS.workAutomationsSubscribe, workAutomations.subscribe(input)),
+        [WS_METHODS.workAutomationsMutate]: (input) =>
+          observeRpcEffect(WS_METHODS.workAutomationsMutate, workAutomations.mutate(input)),
+        [WS_METHODS.workDashboardList]: (input) =>
+          observeRpcEffect(WS_METHODS.workDashboardList, workDashboard.list(input)),
+        [WS_METHODS.workDashboardSubscribe]: (input) =>
+          observeRpcStream(WS_METHODS.workDashboardSubscribe, workDashboard.subscribe(input)),
+        [WS_METHODS.workActivityList]: (input) =>
+          observeRpcEffect(WS_METHODS.workActivityList, workActivity.list(input)),
+        [WS_METHODS.workActivitySubscribe]: (input) =>
+          observeRpcStream(WS_METHODS.workActivitySubscribe, workActivity.subscribe(input)),
+        [WS_METHODS.slackGet]: (input) => observeRpcEffect(WS_METHODS.slackGet, slack.read(input)),
+        [WS_METHODS.slackList]: (input) =>
+          observeRpcEffect(WS_METHODS.slackList, slack.list(input)),
+        [WS_METHODS.slackSubscribe]: (input) =>
+          observeRpcStream(WS_METHODS.slackSubscribe, slack.subscribe(input)),
+        [WS_METHODS.slackMutate]: (input) =>
+          observeRpcEffect(WS_METHODS.slackMutate, slack.mutate(input)),
+        [WS_METHODS.slackAdmin]: (input) =>
+          observeRpcEffect(WS_METHODS.slackAdmin, slack.admin(input)),
+        [WS_METHODS.githubIssuesList]: (input) =>
+          observeRpcEffect(WS_METHODS.githubIssuesList, githubIssues.list(input)),
+        [WS_METHODS.githubIssuesGet]: (input) =>
+          observeRpcEffect(WS_METHODS.githubIssuesGet, githubIssues.get(input)),
+        [WS_METHODS.githubIssuesMutate]: (input) =>
+          observeRpcEffect(WS_METHODS.githubIssuesMutate, githubIssues.mutate(input)),
+        [WS_METHODS.githubIssuesSubscribe]: (input) =>
+          observeRpcStream(WS_METHODS.githubIssuesSubscribe, githubIssues.subscribe(input)),
+        [WS_METHODS.notificationsList]: (input) =>
+          observeRpcEffect(WS_METHODS.notificationsList, notifications.list(input)),
+        [WS_METHODS.notificationsMutate]: (input) =>
+          observeRpcEffect(WS_METHODS.notificationsMutate, notifications.mutate(input)),
+        [WS_METHODS.notificationsSubscribe]: (input) =>
+          observeRpcStream(WS_METHODS.notificationsSubscribe, notifications.subscribe(input)),
+        [WS_METHODS.workReviewsGet]: (input) =>
+          observeRpcEffect(WS_METHODS.workReviewsGet, workReviews.get(input.id)),
+        [WS_METHODS.workReviewsMutate]: (input) =>
+          observeRpcEffect(WS_METHODS.workReviewsMutate, workReviews.mutate(input)),
+        [WS_METHODS.workReviewsSubscribe]: (input) =>
+          observeRpcStream(WS_METHODS.workReviewsSubscribe, workReviews.subscribe(input.id)),
+        [WS_METHODS.workPullRequestsGet]: (input) =>
+          observeRpcEffect(WS_METHODS.workPullRequestsGet, workPullRequests.get(input.id)),
+        [WS_METHODS.workPullRequestsMutate]: (input) =>
+          observeRpcEffect(WS_METHODS.workPullRequestsMutate, workPullRequests.mutate(input)),
+        [WS_METHODS.workPullRequestsSubscribe]: (input) =>
+          observeRpcStream(
+            WS_METHODS.workPullRequestsSubscribe,
+            workPullRequests.subscribe(input.id),
+          ),
+        [WS_METHODS.workExecutionsGet]: (input) =>
+          observeRpcEffect(WS_METHODS.workExecutionsGet, workExecutions.get(input.id)),
+        [WS_METHODS.workExecutionsMutate]: (input) =>
+          observeRpcEffect(WS_METHODS.workExecutionsMutate, workExecutions.mutate(input)),
+        [WS_METHODS.workExecutionsSubscribe]: (input) =>
+          observeRpcStream(WS_METHODS.workExecutionsSubscribe, workExecutions.subscribe(input.id)),
+        [WS_METHODS.workPlansGet]: (input) =>
+          observeRpcEffect(WS_METHODS.workPlansGet, workPlans.get(input.id)),
+        [WS_METHODS.workPlansMutate]: (input) =>
+          observeRpcEffect(WS_METHODS.workPlansMutate, workPlans.mutate(input)),
+        [WS_METHODS.workPlansSubscribe]: (input) =>
+          observeRpcStream(WS_METHODS.workPlansSubscribe, workPlans.subscribe(input.id)),
+        [WS_METHODS.workItemsList]: (input) =>
+          observeRpcEffect(WS_METHODS.workItemsList, workItems.list(input)),
+        [WS_METHODS.workItemsGet]: (input) =>
+          observeRpcEffect(WS_METHODS.workItemsGet, workItems.get(input.id)),
+        [WS_METHODS.workItemsMutate]: (input) =>
+          observeRpcEffect(WS_METHODS.workItemsMutate, workItems.mutate(input)),
+        [WS_METHODS.workItemsSubscribe]: (input) =>
+          observeRpcStream(WS_METHODS.workItemsSubscribe, workItems.subscribe(input)),
         [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
           observeRpcEffect(
             ORCHESTRATION_WS_METHODS.dispatchCommand,
@@ -3422,82 +3526,173 @@ export const websocketRpcRouteLayer = Layer.unwrap(
         ),
     });
     const pullRequests = yield* PullRequestService.PullRequestService;
+    const workItems = yield* WorkItems.make;
+    const workActivity = yield* WorkActivity.make.pipe(
+      Effect.provideService(WorkItems.WorkItemService, workItems),
+    );
+    const workDashboard = yield* WorkDashboard.make.pipe(
+      Effect.provideService(WorkItems.WorkItemService, workItems),
+      Effect.provideService(WorkActivity.WorkActivityService, workActivity),
+    );
+    const planGenerator = yield* WorkPlanGenerator.make.pipe(
+      Effect.provide(VcsDriverRegistry.layer.pipe(Layer.provide(VcsProjectConfig.layer))),
+    );
+    const workPlans = yield* WorkPlans.make.pipe(
+      Effect.provideService(WorkItems.WorkItemService, workItems),
+      Effect.provideService(WorkPlanGenerator.WorkPlanGenerator, planGenerator),
+    );
+    const executionRuntime = yield* WorkExecutionRuntime.make.pipe(
+      Effect.provide(ProcessRunner.layer),
+    );
+    const workExecutions = yield* WorkExecutions.make.pipe(
+      Effect.provideService(WorkItems.WorkItemService, workItems),
+      Effect.provideService(WorkExecutionRuntime.WorkExecutionRuntime, executionRuntime),
+    );
+    const workReviews = yield* WorkReviews.make.pipe(
+      Effect.provideService(WorkItems.WorkItemService, workItems),
+      Effect.provideService(WorkExecutions.WorkExecutionService, workExecutions),
+    );
+    const workPullRequests = yield* WorkPullRequests.make.pipe(
+      Effect.provideService(WorkItems.WorkItemService, workItems),
+    );
+    const githubAdapter = yield* GitHubIssuesAdapter.make.pipe(
+      Effect.provide(Layer.mergeAll(GitHubCli.layer, SourceControlRateLimit.layer)),
+    );
+    const githubIssues = yield* GitHubIssues.make.pipe(
+      Effect.provideService(WorkItems.WorkItemService, workItems),
+      Effect.provideService(GitHubIssuesAdapter.GitHubIssuesAdapter, githubAdapter),
+    );
+    const applicationEvents = yield* ApplicationEvents.make;
+    const slackAdapter = yield* SlackAdapter.make;
+    const slack = yield* Slack.make.pipe(
+      Effect.provideService(SlackAdapter.SlackAdapter, slackAdapter),
+      Effect.provideService(WorkItems.WorkItemService, workItems),
+      Effect.provideService(ApplicationEvents.ApplicationEventService, applicationEvents),
+    );
+    const notifications = yield* Notifications.make.pipe(
+      Effect.provideService(ApplicationEvents.ApplicationEventService, applicationEvents),
+      Effect.provideService(WorkItems.WorkItemService, workItems),
+    );
+    const workAutomations = yield* WorkAutomations.make.pipe(
+      Effect.provideService(WorkExecutions.WorkExecutionService, workExecutions),
+      Effect.provideService(WorkPullRequests.WorkPullRequestService, workPullRequests),
+      Effect.provideService(WorkItems.WorkItemService, workItems),
+      Effect.provideService(WorkPlans.WorkPlanService, workPlans),
+      Effect.provideService(ApplicationEvents.ApplicationEventService, applicationEvents),
+    );
     const sql = yield* SqlClient.SqlClient;
-    return HttpRouter.add(
-      "GET",
-      "/ws",
-      Effect.gen(function* () {
-        const request = yield* HttpServerRequest.HttpServerRequest;
-        const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
-        const sessions = yield* SessionStore.SessionStore;
-        const analytics = yield* AnalyticsService.AnalyticsService;
-        const session = yield* serverAuth.authenticateWebSocketUpgrade(request).pipe(
-          Effect.catchIf(EnvironmentAuth.isServerAuthCredentialError, (error) =>
-            failEnvironmentAuthInvalid(
-              EnvironmentAuth.serverAuthCredentialReason(error),
-              EnvironmentAuth.serverAuthDpopFailureReason(error),
+    return Layer.mergeAll(
+      HttpRouter.add(
+        "GET",
+        "/api/integrations/slack/callback",
+        Effect.gen(function* () {
+          const request = yield* HttpServerRequest.HttpServerRequest;
+          const params = new URL(request.url, "http://localhost").searchParams;
+          const success = yield* slack
+            .completeOAuth(params.get("state") ?? "", params.get("code") ?? "")
+            .pipe(Effect.match({ onSuccess: () => true, onFailure: () => false }));
+          return HttpServerResponse.text(
+            success
+              ? "Slack connected. Return to Work → Slack and choose channels to share with this environment."
+              : "Slack connection failed or expired. Return to Work → Slack and start again.",
+            {
+              status: success ? 200 : 400,
+              headers: { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" },
+            },
+          );
+        }),
+      ),
+      HttpRouter.add(
+        "GET",
+        "/ws",
+        Effect.gen(function* () {
+          const request = yield* HttpServerRequest.HttpServerRequest;
+          const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+          const sessions = yield* SessionStore.SessionStore;
+          const analytics = yield* AnalyticsService.AnalyticsService;
+          const session = yield* serverAuth.authenticateWebSocketUpgrade(request).pipe(
+            Effect.catchIf(EnvironmentAuth.isServerAuthCredentialError, (error) =>
+              failEnvironmentAuthInvalid(
+                EnvironmentAuth.serverAuthCredentialReason(error),
+                EnvironmentAuth.serverAuthDpopFailureReason(error),
+              ),
             ),
-          ),
-          Effect.catchIf(EnvironmentAuth.isServerAuthInternalError, (error) =>
-            failEnvironmentInternal("internal_error", error),
-          ),
-        );
-        const clientOrigin = readClientConnectionOrigin(request);
-        const clientAnalyticsProps = readClientAnalyticsProps(request);
-        yield* sessions.recordClientConnection(session.sessionId, clientOrigin);
-        yield* analytics.record("client.connected", clientAnalyticsProps);
-        const rpcWebSocketHttpEffect = yield* RpcServer.toHttpEffectWebsocket(WsRpcGroup, {
-          disableTracing: true,
-        }).pipe(
-          Effect.provide(
-            makeWsRpcLayer(
-              session,
-              clientOrigin,
-              clientAnalyticsProps,
-              previewAutomationBroker,
-            ).pipe(
-              Layer.provideMerge(RpcSerialization.layerJson),
-              Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),
-              Layer.provide(AgentSessionScanner.layer),
-              Layer.provide(ProviderMaintenanceRunner.layer),
-              Layer.provide(Layer.succeed(ServerSelfUpdate.ServerSelfUpdate, serverSelfUpdate)),
-              // One server-lifetime service means clients share the same PR caches, and a WS
-              // mutation invalidates the HTTP diff cache that every client reads from.
-              Layer.provide(Layer.succeed(PullRequestService.PullRequestService, pullRequests)),
-              Layer.provide(
-                SourceControlDiscovery.layer.pipe(
-                  Layer.provide(
-                    SourceControlProviderRegistry.layer.pipe(
-                      Layer.provide(
-                        Layer.mergeAll(
-                          AzureDevOpsCli.layer,
-                          BitbucketApi.layer,
-                          GitHubCli.layer,
-                          GitLabCli.layer,
-                          ForgejoCli.layer,
+            Effect.catchIf(EnvironmentAuth.isServerAuthInternalError, (error) =>
+              failEnvironmentInternal("internal_error", error),
+            ),
+          );
+          const clientOrigin = readClientConnectionOrigin(request);
+          const clientAnalyticsProps = readClientAnalyticsProps(request);
+          yield* sessions.recordClientConnection(session.sessionId, clientOrigin);
+          yield* analytics.record("client.connected", clientAnalyticsProps);
+          const rpcWebSocketHttpEffect = yield* RpcServer.toHttpEffectWebsocket(WsRpcGroup, {
+            disableTracing: true,
+          }).pipe(
+            Effect.provide(
+              makeWsRpcLayer(
+                session,
+                clientOrigin,
+                clientAnalyticsProps,
+                previewAutomationBroker,
+              ).pipe(
+                Layer.provideMerge(RpcSerialization.layerJson),
+                Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),
+                Layer.provide(AgentSessionScanner.layer),
+                Layer.provide(ProviderMaintenanceRunner.layer),
+                Layer.provide(Layer.succeed(ServerSelfUpdate.ServerSelfUpdate, serverSelfUpdate)),
+                // One server-lifetime service means clients share the same PR caches, and a WS
+                // mutation invalidates the HTTP diff cache that every client reads from.
+                Layer.provide(Layer.succeed(PullRequestService.PullRequestService, pullRequests)),
+                Layer.provide(Layer.succeed(WorkItems.WorkItemService, workItems)),
+                Layer.provide(
+                  Layer.succeed(WorkAutomations.WorkAutomationService, workAutomations),
+                ),
+                Layer.provide(Layer.succeed(WorkActivity.WorkActivityService, workActivity)),
+                Layer.provide(Layer.succeed(WorkDashboard.WorkDashboardService, workDashboard)),
+                Layer.provide(Layer.succeed(WorkPlans.WorkPlanService, workPlans)),
+                Layer.provide(Layer.succeed(WorkExecutions.WorkExecutionService, workExecutions)),
+                Layer.provide(Layer.succeed(WorkReviews.WorkReviewService, workReviews)),
+                Layer.provide(Layer.succeed(Notifications.NotificationService, notifications)),
+                Layer.provide(
+                  Layer.succeed(WorkPullRequests.WorkPullRequestService, workPullRequests),
+                ),
+                Layer.provide(Layer.succeed(GitHubIssues.GitHubIssuesService, githubIssues)),
+                Layer.provide(Layer.succeed(Slack.SlackService, slack)),
+                Layer.provide(
+                  SourceControlDiscovery.layer.pipe(
+                    Layer.provide(
+                      SourceControlProviderRegistry.layer.pipe(
+                        Layer.provide(
+                          Layer.mergeAll(
+                            AzureDevOpsCli.layer,
+                            BitbucketApi.layer,
+                            GitHubCli.layer,
+                            GitLabCli.layer,
+                            ForgejoCli.layer,
+                          ),
                         ),
-                      ),
-                      Layer.provideMerge(GitVcsDriver.layer),
-                      Layer.provide(
-                        VcsDriverRegistry.layer.pipe(Layer.provide(VcsProjectConfig.layer)),
+                        Layer.provideMerge(GitVcsDriver.layer),
+                        Layer.provide(
+                          VcsDriverRegistry.layer.pipe(Layer.provide(VcsProjectConfig.layer)),
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
-        );
-        return yield* Effect.acquireUseRelease(
-          sessions.markConnected(session.sessionId),
-          () => rpcWebSocketHttpEffect,
-          () => sessions.markDisconnected(session.sessionId),
-        );
-      }).pipe(
-        Effect.catchTags({
-          EnvironmentAuthInvalidError: HttpServerRespondable.toResponse,
-          EnvironmentInternalError: HttpServerRespondable.toResponse,
-        }),
+          );
+          return yield* Effect.acquireUseRelease(
+            sessions.markConnected(session.sessionId),
+            () => rpcWebSocketHttpEffect,
+            () => sessions.markDisconnected(session.sessionId),
+          );
+        }).pipe(
+          Effect.catchTags({
+            EnvironmentAuthInvalidError: HttpServerRespondable.toResponse,
+            EnvironmentInternalError: HttpServerRespondable.toResponse,
+          }),
+        ),
       ),
     );
   }),

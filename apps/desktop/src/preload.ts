@@ -1,5 +1,6 @@
 import type {
   DesktopBridge,
+  DesktopAppNotification,
   DesktopPreviewPointerEvent,
   DesktopPreviewRecordingFrame,
   DesktopPreviewTabState,
@@ -57,6 +58,15 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     return result as ReturnType<DesktopBridge["getAppBranding"]>;
   },
   getClientPlatform: () => clientPlatform,
+  showAppNotification: (notification) =>
+    ipcRenderer.invoke(IpcChannels.SHOW_APP_NOTIFICATION_CHANNEL, notification),
+  closeAppNotification: (id) => ipcRenderer.invoke(IpcChannels.CLOSE_APP_NOTIFICATION_CHANNEL, id),
+  onAppNotificationClick: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, notification: DesktopAppNotification) =>
+      listener(notification);
+    ipcRenderer.on(IpcChannels.APP_NOTIFICATION_CLICK_CHANNEL, handler);
+    return () => ipcRenderer.removeListener(IpcChannels.APP_NOTIFICATION_CLICK_CHANNEL, handler);
+  },
   setNotificationBadge: (badge) =>
     ipcRenderer.invoke(IpcChannels.SET_NOTIFICATION_BADGE_CHANNEL, badge),
   onNotificationBadgeClear: (listener) => {

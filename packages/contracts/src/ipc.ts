@@ -1,3 +1,4 @@
+import type { DesktopAppNotification } from "./notifications.ts";
 import type {
   VcsCreateRefInput,
   VcsCreateRefResult,
@@ -1215,6 +1216,9 @@ export interface DesktopBridge {
   getAppBranding: () => DesktopAppBranding | null;
   /** The desktop client's OS platform, read from Electron's preload process. */
   getClientPlatform?: () => string;
+  showAppNotification?: (notification: DesktopAppNotification) => Promise<boolean>;
+  closeAppNotification?: (id: string) => Promise<void>;
+  onAppNotificationClick?: (listener: (notification: DesktopAppNotification) => void) => () => void;
   setNotificationBadge?: (badge: { count: number; image: string | null }) => Promise<void>;
   onNotificationBadgeClear?: (listener: () => void) => () => void;
   /**
