@@ -1,3 +1,6 @@
+import Migration0069 from "./Migrations/069_VercelConnection.ts";
+import Migration0068 from "./Migrations/068_Vercel.ts";
+import Migration0067 from "./Migrations/067_WorkTaskUpdates.ts";
 import Migration0066 from "./Migrations/066_DeletedWorkItems.ts";
 import Migration0065 from "./Migrations/065_GitHubAccount.ts";
 import Migration0063 from "./Migrations/063_AutonomousWork.ts";
@@ -156,6 +159,9 @@ const migrationEntries = [
   [64, "WorkDashboard", Migration0064],
   [65, "GitHubAccount", Migration0065],
   [66, "DeletedWorkItems", Migration0066],
+  [67, "WorkTaskUpdates", Migration0067],
+  [68, "Vercel", Migration0068],
+  [69, "VercelConnection", Migration0069],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

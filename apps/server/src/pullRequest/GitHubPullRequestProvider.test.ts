@@ -457,6 +457,44 @@ const openDetail = {
   commits: [],
 };
 
+it.effect(
+  "preserves reviewers from the permissions query when the core read omits team lookup",
+  () =>
+    Effect.gen(function* () {
+      const provider = yield* make;
+      const detail = yield* provider.getChangeRequest({
+        cwd: "/w",
+        repository: "acme/web",
+        host: "github.com",
+        number: 7,
+      });
+      expect(detail.reviewRequestLogins).toEqual(["octocat"]);
+      expect(detail.reviewers.map((actor) => actor.login)).toEqual(["octocat"]);
+      expect(detail.title).toBe(openDetail.title);
+    }).pipe(
+      Effect.provide(
+        Layer.mock(GitHubPullRequestCli.GitHubPullRequestCli)({
+          getPullRequestDetail: () => Effect.succeed({ ...openDetail, isCrossRepository: false }),
+          getPullRequestBaseComparison: () =>
+            Effect.succeed({ behindBy: 0, viewerCanUpdate: false }),
+          getRepositoryAccess: () =>
+            Effect.succeed({
+              canWrite: false,
+              mergeCapabilities: { merge: true, squash: true, rebase: true },
+            }),
+          getViewerAccess: () =>
+            Effect.succeed({
+              canWrite: false,
+              canTriage: false,
+              canUpdate: false,
+              didAuthor: false,
+              reviewRequestLogins: ["octocat"],
+            }),
+        }),
+      ),
+    ),
+);
+
 it.effect("does not classify same-repository gates as fork workflow approvals", () =>
   Effect.gen(function* () {
     const provider = yield* make;

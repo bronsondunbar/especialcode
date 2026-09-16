@@ -159,6 +159,7 @@ import {
   archiveCloudComposerDrafts,
   clearComposerDraftContent,
   clearComposerDraftContentState,
+  updateComposerDraftSettings,
   clearComposerDraftsEnvironment,
   ComposerDraftPersistenceError,
   composerDraftsAtom,
@@ -2684,4 +2685,26 @@ describe("mobile composer drafts", () => {
     });
     expect(composerAttachmentCleanupMocks.remove).not.toHaveBeenCalled();
   });
+});
+
+it("persists a Vercel project selection and clears it on retarget or completion", () => {
+  const draftKey = createNewTaskDraft({
+    environmentId: EnvironmentId.make("vercel-env"),
+    projectId: ProjectId.make("app"),
+  });
+  updateComposerDraftSettings(draftKey, { vercel: { project: "prj_app" } });
+  const draft = getComposerDraftSnapshot(draftKey);
+  const restored = decodePersistedComposerState({
+    schemaVersion: 1,
+    drafts: { [draftKey]: draft },
+  });
+  expect(restored.drafts[draftKey]?.vercel).toEqual({ project: "prj_app" });
+  expect(
+    clearComposerDraftContentState(restored.drafts, draftKey)[draftKey]?.vercel,
+  ).toBeUndefined();
+  retargetNewTaskDraft(draftKey, {
+    environmentId: EnvironmentId.make("other-env"),
+    projectId: ProjectId.make("other-app"),
+  });
+  expect(getComposerDraftSnapshot(draftKey).vercel).toBeUndefined();
 });

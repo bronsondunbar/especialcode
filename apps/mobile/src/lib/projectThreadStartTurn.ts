@@ -1,3 +1,4 @@
+import type { VercelThreadSelection } from "@t3tools/contracts";
 import {
   CommandId,
   MessageId,
@@ -23,6 +24,7 @@ export function deriveThreadTitleFromPrompt(value: string): string {
 }
 
 export interface ProjectThreadStartTurnSpec {
+  readonly vercel?: VercelThreadSelection;
   readonly projectId: ProjectId;
   readonly projectCwd: string;
   readonly threadId: string;
@@ -68,6 +70,7 @@ export function buildProjectThreadStartTurnInput(spec: ProjectThreadStartTurnSpe
     interactionMode: spec.interactionMode,
     bootstrap: {
       createThread: {
+        ...(spec.vercel ? { vercel: spec.vercel } : {}),
         projectId: spec.projectId,
         title,
         modelSelection: spec.modelSelection,

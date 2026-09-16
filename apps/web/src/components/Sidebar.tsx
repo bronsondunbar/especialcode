@@ -1,3 +1,4 @@
+import { VercelThreadTab } from "./vercel/VercelThreadTab";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
 import { useAtomValue } from "@effect/atom-react";
@@ -1706,6 +1707,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           </TooltipTrigger>
           {detailsTooltip}
         </Tooltip>
+        {props.isActive && (
+          <VercelThreadTab
+            key={threadKey}
+            environmentId={thread.environmentId}
+            projectId={thread.projectId}
+            threadId={thread.id}
+          />
+        )}
       </li>
     );
   }
@@ -1962,6 +1971,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         </TooltipTrigger>
         {detailsTooltip}
       </Tooltip>
+      {props.isActive && (
+        <VercelThreadTab
+          key={threadKey}
+          environmentId={thread.environmentId}
+          projectId={thread.projectId}
+          threadId={thread.id}
+        />
+      )}
     </li>
   );
 });

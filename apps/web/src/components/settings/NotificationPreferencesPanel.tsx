@@ -8,9 +8,8 @@ import {
 import { notifications } from "../../state/notifications";
 import { useEnvironmentQuery, formatEnvironmentQueryError } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { useClientSettings, useUpdateClientSettings } from "../../hooks/useSettings";
 import { Button } from "../ui/button";
-import { unlockNotificationAudio, hasNotificationSound } from "../../threadNotifications";
+import { Checkbox } from "../ui/checkbox";
 export function NotificationPreferencesPanel({ environmentId }: { environmentId: EnvironmentId }) {
   const query = useEnvironmentQuery(notifications.list({ environmentId, input: { limit: 1 } }));
   const command = useAtomCommand(notifications.mutate, { reportFailure: false });
@@ -32,8 +31,7 @@ export function NotificationPreferencesPanel({ environmentId }: { environmentId:
     }
   }
   return (
-    <details className="rounded-xl border p-4">
-      <summary className="cursor-pointer font-medium">Notification preferences</summary>
+    <div>
       <p className="my-3 text-sm text-muted-foreground">
         Applies to future events across this environment. Existing inbox history stays available.
         Slack options take effect when Slack integration is connected.
@@ -50,13 +48,13 @@ export function NotificationPreferencesPanel({ environmentId }: { environmentId:
               <h3 className="font-medium">{group.title}</h3>
               {group.entries.map((entry) => (
                 <label key={entry.key} className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
+                  <Checkbox
+                    disabled={pending}
                     checked={state.value.events[entry.key]}
-                    onChange={(event) =>
+                    onCheckedChange={(checked) =>
                       void save({
                         ...state.value,
-                        events: { ...state.value.events, [entry.key]: event.target.checked },
+                        events: { ...state.value.events, [entry.key]: checked },
                       })
                     }
                   />
@@ -74,13 +72,13 @@ export function NotificationPreferencesPanel({ environmentId }: { environmentId:
               ] as const
             ).map(([key, label]) => (
               <label key={key} className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
+                <Checkbox
+                  disabled={pending}
                   checked={state.value.delivery[key]}
-                  onChange={(event) =>
+                  onCheckedChange={(checked) =>
                     void save({
                       ...state.value,
-                      delivery: { ...state.value.delivery, [key]: event.target.checked },
+                      delivery: { ...state.value.delivery, [key]: checked },
                     })
                   }
                 />
@@ -96,70 +94,7 @@ export function NotificationPreferencesPanel({ environmentId }: { environmentId:
           </div>
         </fieldset>
       ) : (
-        <p>Loading preferences…</p>
-      )}
-      <DeviceNotificationControl />
-    </details>
-  );
-}
-function DeviceNotificationControl() {
-  const mode = useClientSettings((s) => s.notificationMode);
-  const update = useUpdateClientSettings();
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-  async function change(next: typeof mode) {
-    setError(null);
-    if (hasNotificationSound(next)) unlockNotificationAudio();
-    if (
-      (next === "notifications" || next === "notifications-and-sound") &&
-      !window.desktopBridge?.showAppNotification
-    ) {
-      if (typeof Notification === "undefined" || !window.isSecureContext) {
-        setError("Desktop alerts require a supported browser over HTTPS or the desktop app.");
-        return;
-      }
-      setPending(true);
-      try {
-        if ((await Notification.requestPermission()) !== "granted") {
-          setError(
-            "Allow notifications in your browser or system settings to enable desktop alerts.",
-          );
-          return;
-        }
-      } catch {
-        setError("Desktop notifications are unavailable on this device.");
-        return;
-      } finally {
-        setPending(false);
-      }
-    }
-    update({ notificationMode: next });
-  }
-  return (
-    <div className="mt-5 grid gap-2 border-t pt-4">
-      <label className="text-sm font-medium" htmlFor="device-notifications">
-        Alerts on this device
-      </label>
-      <select
-        id="device-notifications"
-        className="rounded-lg border bg-background p-2 text-sm"
-        value={mode}
-        disabled={pending}
-        onChange={(event) => void change(event.target.value as typeof mode)}
-      >
-        <option value="off">Off</option>
-        <option value="notifications">Notifications only</option>
-        <option value="sound">Sound only</option>
-        <option value="notifications-and-sound">Notifications with sound</option>
-      </select>
-      <p className="text-xs text-muted-foreground">
-        Desktop alerts appear while this client is connected and in the background. Your system may
-        suppress them in Focus or Do Not Disturb mode.
-      </p>
-      {error && (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
+        !query.error && <p>Loading preferences…</p>
       )}
     </div>
   );

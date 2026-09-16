@@ -101,6 +101,7 @@ const RawListItemSchema = Schema.Struct({
   updatedAt: Schema.String,
   mergedAt: Schema.optional(Schema.NullOr(Schema.String)),
   reviewRequests: Schema.optional(Schema.Array(RawReviewRequestSchema)),
+  assignees: Schema.optional(Schema.Array(RawActorSchema)),
   labels: Schema.optional(Schema.Array(RawLabelSchema)),
   /**
    * Every check of the head commit, which is the only rollup `gh pr list --json` can give: there
@@ -201,7 +202,14 @@ const RawSearchItemSchema = Schema.Struct({
 const RawSearchSchema = Schema.Struct({
   data: Schema.Struct({
     search: Schema.Struct({
-      pageInfo: Schema.optional(Schema.NullOr(Schema.Struct({ hasNextPage: Schema.Boolean }))),
+      pageInfo: Schema.optional(
+        Schema.NullOr(
+          Schema.Struct({
+            hasNextPage: Schema.Boolean,
+            endCursor: Schema.optional(Schema.NullOr(Schema.String)),
+          }),
+        ),
+      ),
       // Row by row, like the listing's own: a node that is not a pull request — or one field
       // GitHub changes — is skipped rather than blanking every repository at once.
       nodes: Schema.optional(Schema.NullOr(Schema.Array(Schema.Unknown))),
@@ -636,9 +644,16 @@ export function decodeActorAvatarsJson(
 }
 
 export const PULL_REQUEST_LIST_JSON_FIELDS =
-  "number,title,url,author,headRefName,baseRefName,state,isDraft,mergeable,reviewDecision,additions,deletions,createdAt,updatedAt,mergedAt,reviewRequests,labels,statusCheckRollup";
+  "number,title,url,author,headRefName,baseRefName,state,isDraft,mergeable,reviewDecision,additions,deletions,createdAt,updatedAt,mergedAt,reviewRequests,assignees,labels,statusCheckRollup";
 
-export const PULL_REQUEST_DETAIL_JSON_FIELDS = `${PULL_REQUEST_LIST_JSON_FIELDS},body,changedFiles,closedAt,isCrossRepository,headRepositoryOwner,headRefOid,autoMergeRequest`;
+// gh expands reviewRequests into team fields that require read:org, even on PRs with no team
+// reviewers. Core details must work with repository access; individual requests ride with the
+// permissions query below, whose User fragment does not require organization access.
+export const PULL_REQUEST_DETAIL_JSON_FIELDS = `${PULL_REQUEST_LIST_JSON_FIELDS.split(",")
+  .filter((field) => field !== "reviewRequests")
+  .join(
+    ",",
+  )},body,changedFiles,closedAt,isCrossRepository,headRepositoryOwner,headRefOid,autoMergeRequest`;
 export const PULL_REQUEST_ACTIVITY_JSON_FIELDS = "author,comments,reviews,commits";
 
 /** GitHub's own ceiling on a connection page, which is what both thread reads ask for. */
@@ -666,13 +681,16 @@ export const PULL_REQUEST_SEARCH_MAX_ROWS = GRAPHQL_PAGE_SIZE;
  * than twenty labels shows twenty, and one that has asked more than twenty people for a review
  * is already past what a row can say.
  */
-export function pullRequestSearchGraphQlQuery(rows: number, includeStacks = false): string {
-  return `query($q: String!) {
-  search(query: $q, type: ISSUE, first: ${Math.min(Math.max(Math.trunc(rows), 1), PULL_REQUEST_SEARCH_MAX_ROWS)}) {
-    pageInfo { hasNextPage }
+export function pullRequestSearchGraphQlQuery(
+  rows: number,
+  options: { includeStacks?: boolean; advancedSearch?: boolean; cursorPaging?: boolean } = {},
+): string {
+  return `query($q: String!${options.cursorPaging ? ", $after: String" : ""}) {
+  search(query: $q, type: ${options.advancedSearch ? "ISSUE_ADVANCED" : "ISSUE"}, first: ${Math.min(Math.max(Math.trunc(rows), 1), PULL_REQUEST_SEARCH_MAX_ROWS)}${options.cursorPaging ? ", after: $after" : ""}) {
+    pageInfo { hasNextPage${options.cursorPaging ? " endCursor" : ""} }
     nodes {
       ... on PullRequest {
-        ${includeStacks ? "stack { number size baseRefName } stackEntry { position }" : ""}
+        ${options.includeStacks ? "stack { number size baseRefName } stackEntry { position }" : ""}
         number
         title
         url
@@ -1057,6 +1075,7 @@ export interface GitHubPullRequestListItem {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly reviewRequestLogins: ReadonlyArray<string>;
+  readonly assigneeLogins?: ReadonlyArray<string>;
   /** At least one outstanding request targets a team rather than an individual login. */
   readonly hasTeamReviewRequest: boolean;
   readonly labels: ReadonlyArray<PullRequestLabel>;
@@ -1432,6 +1451,9 @@ function toListItem(raw: Schema.Schema.Type<typeof RawListItemSchema>): GitHubPu
     createdAt: raw.createdAt,
     updatedAt: raw.updatedAt,
     reviewRequestLogins: toReviewRequestLogins(raw.reviewRequests),
+    ...(raw.assignees === undefined
+      ? {}
+      : { assigneeLogins: raw.assignees.flatMap((actor) => (actor.login ? [actor.login] : [])) }),
     hasTeamReviewRequest: hasTeamReviewRequest(raw.reviewRequests),
     labels: toLabels(raw.labels),
     checksState: rollupChecksState(raw.statusCheckRollup),
@@ -1521,6 +1543,7 @@ export interface GitHubPullRequestSearchBatch {
   readonly rawCount: number;
   /** More rows than this slice asked for, which is truncation for every repository in it. */
   readonly hasNextPage: boolean;
+  readonly nextCursor?: string | null;
 }
 
 /**
@@ -1570,6 +1593,13 @@ export function decodePullRequestSearchJson(
     items,
     rawCount: nodes.length,
     hasNextPage: decoded.success.data.search.pageInfo?.hasNextPage ?? false,
+    ...(decoded.success.data.search.pageInfo?.endCursor === undefined
+      ? {}
+      : {
+          nextCursor: decoded.success.data.search.pageInfo.hasNextPage
+            ? decoded.success.data.search.pageInfo.endCursor
+            : null,
+        }),
   });
 }
 
@@ -2395,6 +2425,7 @@ export function buildLabelRequestJson(labels: ReadonlyArray<string>): string {
  * only read access can still be told apart from a passer-by.
  */
 export interface GitHubViewerAccess {
+  readonly reviewRequestLogins?: ReadonlyArray<string>;
   readonly canWrite: boolean;
   /**
    * The viewer's role reaches triage, which is the least that may label. Everyone who can write
@@ -2413,15 +2444,19 @@ export interface GitHubViewerAccess {
 }
 
 /**
- * The viewer's standing, asked on its own. Only the write path needs this: reading a pull request
- * already carries the same three fields on calls it was making anyway, and this exists so that a
- * merge or a close is decided by what GitHub says now rather than by what the page was told when
- * it loaded.
+ * The viewer's standing for the core detail read and for fresh authorization before writes.
+ * Individual review requests travel with it so core details do not depend on gh's team lookup.
  */
 export const VIEWER_PERMISSIONS_GRAPHQL_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     viewerPermission
-    pullRequest(number: $number) { viewerCanUpdate viewerDidAuthor }
+    pullRequest(number: $number) {
+      viewerCanUpdate
+      viewerDidAuthor
+      reviewRequests(first: 100) {
+        nodes { requestedReviewer { ... on User { login } } }
+      }
+    }
   }
 }`;
 
@@ -2430,7 +2465,24 @@ const RawViewerPermissionsSchema = Schema.Struct({
     repository: Schema.Struct({
       viewerPermission: Schema.optional(Schema.NullOr(Schema.String)),
       /** Null for a number that names no pull request the viewer can see. */
-      pullRequest: Schema.NullOr(RawViewerFieldsSchema),
+      pullRequest: Schema.NullOr(
+        Schema.Struct({
+          ...RawViewerFieldsSchema.fields,
+          reviewRequests: Schema.optional(
+            Schema.Struct({
+              nodes: Schema.Array(
+                Schema.Struct({
+                  requestedReviewer: Schema.NullOr(
+                    Schema.Struct({
+                      login: Schema.optional(Schema.String),
+                    }),
+                  ),
+                }),
+              ),
+            }),
+          ),
+        }),
+      ),
     }),
   }),
 });
@@ -2449,6 +2501,14 @@ export function decodeViewerPermissionsJson(
     canWrite: toCanWrite(repository.viewerPermission),
     canTriage: toCanTriage(repository.viewerPermission),
     ...toPullRequestViewerFields(repository.pullRequest),
+    ...(repository.pullRequest?.reviewRequests === undefined
+      ? {}
+      : {
+          reviewRequestLogins: repository.pullRequest.reviewRequests.nodes.flatMap((node) => {
+            const login = trimmed(node.requestedReviewer?.login);
+            return login === null ? [] : [login];
+          }),
+        }),
   });
 }
 

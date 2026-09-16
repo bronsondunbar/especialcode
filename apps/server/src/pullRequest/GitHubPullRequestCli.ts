@@ -474,6 +474,24 @@ export class GitHubPullRequestCli extends Context.Service<
       readonly filters?: PullRequestListFilters | undefined;
     }) => Effect.Effect<GitHubPullRequestSearchBatch, GitHubPullRequestCliError>;
 
+    readonly listAccountPullRequests: (input: {
+      readonly cwd: string;
+      readonly host: string;
+      readonly state: PullRequestListState;
+      readonly involvement: PullRequestInvolvement;
+      readonly viewer: string;
+      readonly limit: number;
+      readonly query?: string | undefined;
+      readonly cursor?: string | undefined;
+      readonly filters?: PullRequestListFilters | undefined;
+    }) => Effect.Effect<
+      {
+        readonly items: ReadonlyArray<GitHubPullRequestSearchItem>;
+        readonly nextCursor: string | null;
+      },
+      GitHubPullRequestCliError
+    >;
+
     /** The line counts the search leaves out, for rows already on the page. */
     readonly listPullRequestStats: (input: {
       readonly cwd: string;
@@ -811,6 +829,7 @@ function filterQualifiers(
       group.length === 0 ? [] : [`label:${group.map(qualifierValue).join(",")}`],
     ),
     ...(filters.excludedLabels ?? []).map((label) => `-label:${qualifierValue(label)}`),
+    ...(filters.repository === undefined ? [] : [`repo:${qualifierValue(filters.repository)}`]),
     ...(filters.author === undefined
       ? []
       : [`author:${qualifierValue(resolvePullRequestAuthorFilter(filters.author, viewer))}`]),
@@ -854,6 +873,7 @@ function matchesFilters(
 }
 
 function involvementArgs(input: {
+  readonly host: string;
   readonly state: PullRequestListState;
   readonly involvement: PullRequestInvolvement;
   readonly viewer: string;
@@ -877,6 +897,9 @@ function involvementArgs(input: {
   const searchTerms = !input.sorted
     ? []
     : [
+        ...(input.host === "github.com" && input.involvement === "all"
+          ? [personalPullRequestQuery(input.viewer)]
+          : []),
         ...(input.involvement === "reviewing" ? [`review-requested:${input.viewer}`] : []),
         ...(input.state === "closed" ? ["is:unmerged"] : []),
         ...(query.length === 0 ? [] : [searchPhrase(query)]),
@@ -901,6 +924,8 @@ function involvementArgs(input: {
 function matchesUnsortedListing(
   item: GitHubPullRequestListItem,
   input: {
+    readonly host: string;
+    readonly repository: string;
     readonly state: PullRequestListState;
     readonly involvement: PullRequestInvolvement;
     readonly viewer: string;
@@ -908,18 +933,31 @@ function matchesUnsortedListing(
   },
 ): boolean {
   const matchesState = input.state === "all" || item.state === input.state;
+  if (
+    input.filters?.repository !== undefined &&
+    input.filters.repository.toLowerCase() !== input.repository.toLowerCase()
+  )
+    return false;
   const viewer = input.viewer.toLowerCase();
+  const authored = item.author?.login.toLowerCase() === viewer;
+  const assigned = item.assigneeLogins?.some((login) => login.toLowerCase() === viewer) ?? false;
+  const reviewRequested = item.reviewRequestLogins.some((login) => login.toLowerCase() === viewer);
   const matchesInvolvement =
-    input.involvement === "all" ||
-    (input.involvement === "authored"
-      ? item.author?.login.toLowerCase() === viewer
-      : item.hasTeamReviewRequest ||
-        item.reviewRequestLogins.some((login) => login.toLowerCase() === viewer));
+    input.involvement === "all"
+      ? input.host !== "github.com" || authored || assigned || reviewRequested
+      : input.involvement === "authored"
+        ? authored
+        : reviewRequested || (input.host !== "github.com" && item.hasTeamReviewRequest);
   return matchesState && matchesInvolvement && matchesFilters(item, input.filters, input.viewer);
 }
 
 /** What a repository selector may hold before it goes into a search as itself. */
 const SEARCH_REPOSITORY = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
+
+function personalPullRequestQuery(viewer: string): string {
+  const login = qualifierValue(viewer);
+  return `(author:${login} OR assignee:${login} OR review-requested:${login})`;
+}
 
 /**
  * The same listing as one GitHub search across several repositories, which is the only way to
@@ -936,6 +974,8 @@ const SEARCH_REPOSITORY = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
  * GitHub might still read.
  */
 function searchQuery(input: {
+  readonly host: string;
+  readonly accountScope?: boolean;
   readonly repositories: ReadonlyArray<string>;
   readonly state: PullRequestListState;
   readonly involvement: PullRequestInvolvement;
@@ -944,12 +984,16 @@ function searchQuery(input: {
   readonly cursor?: ProviderListCursor | undefined;
   readonly filters?: PullRequestListFilters | undefined;
 }): string | null {
-  if (input.repositories.length === 0) return null;
+  if (input.repositories.length === 0 && !(input.accountScope && input.host === "github.com"))
+    return null;
   const repositories = input.repositories.map((repository) => repository.trim());
   if (!repositories.every((repository) => SEARCH_REPOSITORY.test(repository))) return null;
   const query = input.query?.trim() ?? "";
   return [
     "is:pr",
+    ...(input.host === "github.com" && input.involvement === "all"
+      ? [personalPullRequestQuery(input.viewer)]
+      : []),
     // "all" is every state, which `is:pr` already is.
     ...(input.state === "open" ? ["is:open"] : []),
     ...(input.state === "closed" ? ["is:closed", "is:unmerged"] : []),
@@ -1033,6 +1077,24 @@ export const make = Effect.gen(function* () {
     function* (input: { readonly cwd: string; readonly host: string }) {
       const unavailable = () =>
         new GitHubViewerLoginUnavailableError({ command: "gh", cwd: input.cwd });
+      // Preserve actionable failures without retaining output that may contain the token.
+      const credentialFailure = (error: GitHubCli.GitHubCliError) => {
+        const fields = {
+          command: "gh" as const,
+          cwd: input.cwd,
+          cause: new Error("GitHub credential verification failed."),
+        };
+        switch (error._tag) {
+          case "GitHubCliUnavailableError":
+            return new GitHubCli.GitHubCliUnavailableError(fields);
+          case "GitHubCliAuthenticationError":
+            return new GitHubCli.GitHubCliAuthenticationError(fields);
+          case "GitHubCliRateLimitError":
+            return new GitHubCli.GitHubCliRateLimitError(fields);
+          default:
+            return new GitHubCli.GitHubCliCommandError(fields);
+        }
+      };
       const host = input.host.toLowerCase();
       const pinned = yield* GitHubCli.PinnedGitHubCredential;
       if (pinned !== null && pinned.host !== host) return yield* unavailable();
@@ -1046,7 +1108,7 @@ export const make = Effect.gen(function* () {
                 args: ["auth", "token", "--hostname", host],
                 env: { GH_DEBUG: "" },
               })
-              .pipe(Effect.mapError(unavailable))).stdout.trim();
+              .pipe(Effect.mapError(credentialFailure))).stdout.trim();
       if (!token) return yield* unavailable();
       const key = `${host}:${NodeCrypto.createHash("sha256").update(token).digest("hex")}`;
       const credential = { host, token: Redacted.make(token), credentialFingerprint: key };
@@ -1080,7 +1142,10 @@ export const make = Effect.gen(function* () {
                     GH_DEBUG: "",
                   },
                 })
-                .pipe(Effect.mapError(unavailable));
+                .pipe(
+                  Effect.provideService(GitHubCli.PinnedGitHubCredential, credential),
+                  Effect.mapError(credentialFailure),
+                );
               const identity = yield* decodeRoutingIdentity(response.stdout).pipe(
                 Effect.mapError(unavailable),
               );
@@ -1731,6 +1796,51 @@ export const make = Effect.gen(function* () {
       );
     },
 
+    listAccountPullRequests: (input) => {
+      const query = searchQuery({
+        ...input,
+        cursor: undefined,
+        repositories: [],
+        accountScope: true,
+      });
+      if (query === null)
+        return Effect.fail(
+          new GitHubRepositorySelectorError({
+            command: "gh",
+            cwd: input.cwd,
+            operation: "listAccountPullRequests",
+          }),
+        );
+      return graphqlRead({
+        cwd: input.cwd,
+        host: input.host,
+        operation: "listAccountPullRequests",
+        privateVariables: {
+          q: query,
+          ...(input.cursor === undefined ? {} : { after: input.cursor }),
+        },
+        query: pullRequestSearchGraphQlQuery(input.limit, {
+          advancedSearch: true,
+          includeStacks: true,
+          cursorPaging: true,
+        }),
+        decode: decodePullRequestSearchJson,
+      }).pipe(
+        Effect.flatMap((batch) => {
+          if (batch.hasNextPage && !batch.nextCursor)
+            return Effect.fail(
+              new GitHubPullRequestReadError({
+                command: "gh",
+                cwd: input.cwd,
+                operation: "listAccountPullRequests",
+                cause: new Error("GitHub did not return the next page cursor."),
+              }),
+            );
+          return Effect.succeed({ items: batch.items, nextCursor: batch.nextCursor ?? null });
+        }),
+      );
+    },
+
     searchPullRequests: (input) => {
       const query = searchQuery(input);
       if (query === null) {
@@ -1752,7 +1862,11 @@ export const make = Effect.gen(function* () {
         operation: "searchPullRequests",
         // The reader's own words are in the query, so it travels over stdin rather than in argv.
         privateVariables: { q: query },
-        query: pullRequestSearchGraphQlQuery(rows, input.host === "github.com"),
+        query: pullRequestSearchGraphQlQuery(rows, {
+          includeStacks: input.host === "github.com",
+          // The personal feed's OR group requires GitHub's advanced search parser.
+          advancedSearch: input.host === "github.com",
+        }),
         decode: decodePullRequestSearchJson,
       }).pipe(
         Effect.map((batch) => ({

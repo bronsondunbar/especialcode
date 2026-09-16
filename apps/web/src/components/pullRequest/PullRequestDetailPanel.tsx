@@ -1,4 +1,5 @@
 import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
+import { useNavigate } from "@tanstack/react-router";
 import { usePullRequestStack } from "~/state/usePullRequestStack";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { scopedThreadKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
@@ -64,7 +65,11 @@ import {
   derivePhysicalProjectKey,
   selectProjectGroupingSettings,
 } from "~/logicalProject";
-import { changeRequestRepositoryUrl, gitHubPullRequestBrowserUrl } from "~/lib/openPullRequestLink";
+import {
+  changeRequestRepositoryUrl,
+  gitHubPullRequestBrowserUrl,
+  findProjectForChangeRequest,
+} from "~/lib/openPullRequestLink";
 import { usePreparePullRequestThreadAction } from "~/lib/sourceControlActions";
 import { cn } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
@@ -79,6 +84,7 @@ import { usePullRequestTurnRefresh, useSharedPullRequestSummary } from "~/state/
 import { useAtomCommand } from "~/state/use-atom-command";
 import { PullRequestStackMenu } from "./PullRequestStackMenu";
 import { PullRequestThreadLinks } from "./PullRequestThreadLinks";
+import { PullRequestAddressCommentsDialog } from "./PullRequestAddressCommentsDialog";
 import { vcsEnvironment } from "~/state/vcs";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { useUiStateStore } from "~/uiStateStore";
@@ -121,6 +127,8 @@ import { PullRequestSummaryTab } from "./PullRequestSummaryTab";
 import { PullRequestTimelineTab } from "./PullRequestTimelineTab";
 import {
   buildAddSelectionToAgentHandoff,
+  buildAddressCommentsHandoff,
+  unresolvedPullRequestReviewThreads,
   buildAskAboutPullRequestHandoff,
   buildExplainPullRequestHandoff,
   buildFixFindingHandoff,
@@ -512,6 +520,7 @@ export function PullRequestDetailPanel({
   onBack?: (() => void) | undefined;
 }) {
   const environmentConfigs = useServerConfigs();
+  const navigate = useNavigate();
   const supportsThreadPullRequests =
     environmentConfigs.get(environmentId)?.environment.capabilities.threadPullRequests === true;
   const reference = useMemo(
@@ -533,6 +542,7 @@ export function PullRequestDetailPanel({
       ? listEntry
       : null;
   const [threadPickerOpen, setThreadPickerOpen] = useState(false);
+  const [addressCommentsScope, setAddressCommentsScope] = useState<string | null>(null);
   const [tab, setTab] = useState<DetailTab>("summary");
   const [timelineOrder, setTimelineOrder] = useState<"newest" | "oldest">("newest");
   const [codeCommitScope, setCodeCommitScope] = useState<{
@@ -907,9 +917,25 @@ export function PullRequestDetailPanel({
   const acting =
     pickableEnvironments.find((entry) => entry.environmentId === chosenEnvironmentId) ?? null;
   const actingEnvironmentId = acting?.environmentId ?? environmentId;
+  const parsedHandoffUrl = detail ? parseChangeRequestUrl(detail.url) : null;
+  const preferredHandoffProject = projects.find(
+    (project) =>
+      project.environmentId === actingEnvironmentId &&
+      project.id === (acting?.projectId ?? detail?.projectId),
+  );
+  const handoffProject =
+    parsedHandoffUrl === null
+      ? undefined
+      : findProjectForChangeRequest(
+          [
+            ...(preferredHandoffProject ? [preferredHandoffProject] : []),
+            ...projects.filter((project) => project.environmentId === actingEnvironmentId),
+          ],
+          parsedHandoffUrl,
+        );
   const prepareThread = usePreparePullRequestThreadAction({
     environmentId: actingEnvironmentId,
-    cwd: acting?.workspaceRoot ?? detail?.workspaceRoot ?? null,
+    cwd: acting?.workspaceRoot ?? handoffProject?.workspaceRoot ?? null,
   });
 
   const finishAction = async (
@@ -1142,15 +1168,20 @@ export function PullRequestDetailPanel({
     // the repository itself is what you want when the point is to run the thing where you
     // already work — and it moves the branch under everything else that is open there.
     mode: "worktree" | "local" = "worktree",
+    forceNewThread = false,
   ) => {
     if (!detail || handoff !== null) return;
-    if (attachTarget !== null && task !== null) {
+    if (!forceNewThread && attachTarget !== null && task !== null) {
       writeTaskToComposer(attachTarget, task);
       toastManager.add({
         type: "success",
         title: "Added to the composer",
         description: "The task is in the composer — read it over, then send.",
       });
+      return;
+    }
+    if (!acting && !handoffProject) {
+      toastManager.add({ type: "error", title: "Add this repository as a project first" });
       return;
     }
     setHandoff(kind);
@@ -1163,7 +1194,10 @@ export function PullRequestDetailPanel({
     });
     // Wherever the reader chose to act: the thread, the checkout it is pointed at and the composer
     // the task lands in are all one server's, and picking another one moves all three.
-    const projectRef = scopeProjectRef(actingEnvironmentId, acting?.projectId ?? detail.projectId);
+    const projectRef = scopeProjectRef(
+      actingEnvironmentId,
+      acting?.projectId ?? handoffProject!.id,
+    );
     // The thread is opened before the checkout rather than after it, because the project's setup
     // script only runs for a checkout that knows which thread it is for — and a worktree with no
     // dependencies installed is not something anyone can test.
@@ -1351,6 +1385,50 @@ export function PullRequestDetailPanel({
     );
   };
 
+  const addressComments = async (target: ScopedThreadRef | null) => {
+    if (
+      !detail ||
+      activity === null ||
+      activityQuery.isPending ||
+      activityQuery.error !== null ||
+      isInvalidating ||
+      handoff !== null
+    )
+      return;
+    if (unresolvedPullRequestReviewThreads(detail.reviewThreads).length === 0) return;
+    const task = buildAddressCommentsHandoff({
+      number: detail.number,
+      title: detail.title,
+      url: detail.url,
+      headBranch: detail.headBranch,
+      baseBranch: detail.baseBranch,
+      reviewThreads: detail.reviewThreads,
+      commentsTruncated: detail.commentsTruncated,
+    });
+    setAddressCommentsScope(null);
+    if (target === null) {
+      await startHandoff("comments", task, "worktree", true);
+      return;
+    }
+    writeTaskToComposer(target, task);
+    try {
+      await navigate({ to: "/$environmentId/$threadId", params: target });
+    } catch {
+      toastManager.add({
+        type: "error",
+        title: "Could not open the thread",
+        description:
+          "The review prompt is saved in its composer. Open the thread from the sidebar.",
+      });
+      return;
+    }
+    toastManager.add({
+      type: "success",
+      title: "Review comments added to the thread",
+      description: "Review the prepared prompt, then send it to the agent.",
+    });
+  };
+
   const startResolveConflicts = () => {
     if (!detail) return;
     void startHandoff("conflicts", {
@@ -1482,6 +1560,23 @@ export function PullRequestDetailPanel({
 
   return (
     <div className="relative flex h-full min-h-0 w-full flex-col bg-background">
+      {addressCommentsScope === tabScopeKey && detail ? (
+        <PullRequestAddressCommentsDialog
+          environmentId={environmentId}
+          reference={reference}
+          url={detail.url}
+          count={unresolvedPullRequestReviewThreads(detail.reviewThreads).length}
+          loading={isInvalidating || activityQuery.isPending}
+          error={activityQuery.error !== null}
+          pending={handoff !== null}
+          canCreateThread={acting !== null || handoffProject !== undefined}
+          onOpenChange={(open) => {
+            if (!open) setAddressCommentsScope(null);
+          }}
+          onThread={(target) => void addressComments(target)}
+          onNewThread={() => void addressComments(null)}
+        />
+      ) : null}
       {threadPickerOpen && detail ? (
         <PullRequestThreadLinks
           key={`${environmentId}:${detail.url}`}
@@ -1645,6 +1740,18 @@ export function PullRequestDetailPanel({
         <div className="mr-4 flex h-7 shrink-0 items-center justify-end gap-1">
           {detail ? (
             <TooltipProvider delay={150} closeDelay={150} timeout={400}>
+              <Button
+                variant="outline"
+                size="xs"
+                disabled={handoff !== null}
+                onClick={() => {
+                  setAddressCommentsScope(tabScopeKey);
+                  void refreshFromHost();
+                }}
+              >
+                <HammerIcon className="size-3.5" />
+                Address comments
+              </Button>
               {!nativeStack && supportsStackActions && nativeStackQuery.error ? (
                 <Button variant="ghost" size="xs" onClick={nativeStackQuery.refresh}>
                   Retry stack lookup

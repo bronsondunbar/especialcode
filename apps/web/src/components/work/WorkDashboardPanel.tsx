@@ -1,4 +1,3 @@
-import { ClearWorkQueueButton } from "./ClearWorkQueueButton";
 import { WorkTaskThreadButton } from "./WorkTaskThreadButton";
 import { WorkPlanPanel } from "./WorkPlanPanel";
 import { WorkActivityPanel } from "./WorkActivityPanel";
@@ -40,8 +39,21 @@ function WorkDashboardPanel({
 }) {
   const projects = useProjects().filter((p) => p.environmentId === environmentId);
   const [filters, setFilters] = useState<WorkDashboardInput>({});
+  const [showFilters, setShowFilters] = useState(false);
+  const filterCount = [
+    filters.projectId,
+    filters.repository,
+    filters.agent,
+    filters.source,
+    filters.status,
+    filters.priority,
+    filters.section,
+  ].filter(Boolean).length;
   const input = useDeferredValue(filters);
   const query = useEnvironmentQuery(atoms.list({ environmentId, input }));
+  const sections =
+    query.data?.sections.filter((section) => section.total > 0 || !!filters.section) ?? [];
+
   function filter(patch: Partial<WorkDashboardInput>) {
     setFilters((previous) => ({ ...previous, ...patch, offset: 0 }));
   }
@@ -50,181 +62,208 @@ function WorkDashboardPanel({
       <div className="mx-auto grid max-w-7xl gap-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-2xl font-semibold">Developer dashboard</h2>
-            <p className="text-sm text-muted-foreground">
-              Attention, execution, and review across your projects.
-            </p>
+            <h2 className="text-2xl font-semibold">Dashboard</h2>
+            <p className="text-sm text-muted-foreground">Your work at a glance.</p>
           </div>
-          <Button variant="outline" onClick={query.refresh}>
-            Refresh
-          </Button>
-        </div>
-        <ClearWorkQueueButton
-          key={environmentId}
-          environmentId={environmentId}
-          onCleared={query.refresh}
-        />
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3" aria-label="Dashboard filters">
-          <select
-            aria-label="Filter by project"
-            className={selectClass}
-            value={filters.projectId ?? ""}
-            onChange={(e) => {
-              const { projectId: _, ...rest } = filters;
-              setFilters(
-                e.target.value
-                  ? { ...rest, projectId: ProjectId.make(e.target.value), offset: 0 }
-                  : { ...rest, offset: 0 },
-              );
-            }}
-          >
-            <option value="">All projects</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.title}
-              </option>
-            ))}
-          </select>
-          <Input
-            aria-label="Filter by repository"
-            placeholder="Repository: owner/repository"
-            value={filters.repository ?? ""}
-            onChange={(e) => {
-              const { repository: _, ...rest } = filters;
-              setFilters(
-                e.target.value
-                  ? { ...rest, repository: e.target.value, offset: 0 }
-                  : { ...rest, offset: 0 },
-              );
-            }}
-          />
-          <select
-            aria-label="Filter by agent"
-            className={selectClass}
-            value={filters.agent ?? ""}
-            onChange={(e) => {
-              const { agent: _, ...rest } = filters;
-              setFilters(
-                e.target.value
-                  ? { ...rest, agent: ProviderInstanceId.make(e.target.value), offset: 0 }
-                  : { ...rest, offset: 0 },
-              );
-            }}
-          >
-            <option value="">All agents</option>
-            {providers.map((p) => (
-              <option key={p.instanceId} value={p.instanceId}>
-                {p.displayName ?? p.driver}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Filter by source"
-            className={selectClass}
-            value={filters.source ?? ""}
-            onChange={(e) => {
-              const { source: _, ...rest } = filters;
-              setFilters(
-                e.target.value
-                  ? { ...rest, source: e.target.value as WorkItemSource, offset: 0 }
-                  : { ...rest, offset: 0 },
-              );
-            }}
-          >
-            <option value="">All sources</option>
-            {["manual", "github_issue", "github_pr", "slack", "automation"].map((s) => (
-              <option key={s} value={s}>
-                {label(s)}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Filter by status"
-            className={selectClass}
-            value={filters.status ?? ""}
-            onChange={(e) => {
-              const { status: _, ...rest } = filters;
-              setFilters(
-                e.target.value
-                  ? { ...rest, status: e.target.value as WorkItemStatus, offset: 0 }
-                  : { ...rest, offset: 0 },
-              );
-            }}
-          >
-            <option value="">All statuses</option>
-            {[
-              "inbox",
-              "backlog",
-              "ready",
-              "planning",
-              "awaiting_approval",
-              "running",
-              "blocked",
-              "review",
-              "done",
-              "cancelled",
-            ].map((s) => (
-              <option key={s} value={s}>
-                {label(s)}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Filter by priority"
-            className={selectClass}
-            value={filters.priority ?? ""}
-            onChange={(e) => {
-              const { priority: _, ...rest } = filters;
-              setFilters(
-                e.target.value
-                  ? { ...rest, priority: e.target.value as WorkItemPriority, offset: 0 }
-                  : { ...rest, offset: 0 },
-              );
-            }}
-          >
-            <option value="">All priorities</option>
-            {["urgent", "high", "medium", "low"].map((s) => (
-              <option key={s} value={s}>
-                {label(s)}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant={!filters.section ? "secondary" : "ghost"}
-            onClick={() => {
-              const { section: _, ...rest } = filters;
-              setFilters({ ...rest, offset: 0 });
-            }}
-          >
-            Overview
-          </Button>
-          {WORK_DASHBOARD_SECTIONS.map((s) => (
+          <div className="flex flex-wrap items-center gap-2">
             <Button
-              key={s.id}
-              variant={filters.section === s.id ? "secondary" : "ghost"}
-              onClick={() => filter({ section: s.id })}
+              variant="outline"
+              aria-expanded={showFilters}
+              aria-controls="dashboard-filters"
+              onClick={() => setShowFilters((visible) => !visible)}
             >
-              {s.title}
+              Filters{filterCount > 0 ? ` (${filterCount})` : ""}
             </Button>
-          ))}
-          <Button variant="ghost" onClick={() => setFilters({})}>
-            Clear filters
-          </Button>
+            {filterCount > 0 && (
+              <Button variant="ghost" onClick={() => setFilters({})}>
+                Clear filters
+              </Button>
+            )}
+            <Button variant="ghost" onClick={query.refresh}>
+              Refresh
+            </Button>
+          </div>
         </div>
+        {showFilters && (
+          <div
+            className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3"
+            aria-label="Dashboard filters"
+            id="dashboard-filters"
+          >
+            <select
+              aria-label="Filter by project"
+              className={selectClass}
+              value={filters.projectId ?? ""}
+              onChange={(e) => {
+                const { projectId: _, ...rest } = filters;
+                setFilters(
+                  e.target.value
+                    ? { ...rest, projectId: ProjectId.make(e.target.value), offset: 0 }
+                    : { ...rest, offset: 0 },
+                );
+              }}
+            >
+              <option value="">All projects</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.title}
+                </option>
+              ))}
+            </select>
+            <Input
+              aria-label="Filter by repository"
+              placeholder="Repository: owner/repository"
+              value={filters.repository ?? ""}
+              onChange={(e) => {
+                const { repository: _, ...rest } = filters;
+                setFilters(
+                  e.target.value
+                    ? { ...rest, repository: e.target.value, offset: 0 }
+                    : { ...rest, offset: 0 },
+                );
+              }}
+            />
+            <select
+              aria-label="Filter by agent"
+              className={selectClass}
+              value={filters.agent ?? ""}
+              onChange={(e) => {
+                const { agent: _, ...rest } = filters;
+                setFilters(
+                  e.target.value
+                    ? { ...rest, agent: ProviderInstanceId.make(e.target.value), offset: 0 }
+                    : { ...rest, offset: 0 },
+                );
+              }}
+            >
+              <option value="">All agents</option>
+              {providers.map((p) => (
+                <option key={p.instanceId} value={p.instanceId}>
+                  {p.displayName ?? p.driver}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Filter by source"
+              className={selectClass}
+              value={filters.source ?? ""}
+              onChange={(e) => {
+                const { source: _, ...rest } = filters;
+                setFilters(
+                  e.target.value
+                    ? { ...rest, source: e.target.value as WorkItemSource, offset: 0 }
+                    : { ...rest, offset: 0 },
+                );
+              }}
+            >
+              <option value="">All sources</option>
+              {["manual", "github_issue", "github_pr", "slack", "automation"].map((s) => (
+                <option key={s} value={s}>
+                  {label(s)}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Filter by status"
+              className={selectClass}
+              value={filters.status ?? ""}
+              onChange={(e) => {
+                const { status: _, ...rest } = filters;
+                setFilters(
+                  e.target.value
+                    ? { ...rest, status: e.target.value as WorkItemStatus, offset: 0 }
+                    : { ...rest, offset: 0 },
+                );
+              }}
+            >
+              <option value="">All statuses</option>
+              {[
+                "inbox",
+                "backlog",
+                "ready",
+                "planning",
+                "awaiting_approval",
+                "running",
+                "blocked",
+                "review",
+                "done",
+                "cancelled",
+              ].map((s) => (
+                <option key={s} value={s}>
+                  {label(s)}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Filter by priority"
+              className={selectClass}
+              value={filters.priority ?? ""}
+              onChange={(e) => {
+                const { priority: _, ...rest } = filters;
+                setFilters(
+                  e.target.value
+                    ? { ...rest, priority: e.target.value as WorkItemPriority, offset: 0 }
+                    : { ...rest, offset: 0 },
+                );
+              }}
+            >
+              <option value="">All priorities</option>
+              {["urgent", "high", "medium", "low"].map((s) => (
+                <option key={s} value={s}>
+                  {label(s)}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Filter by section"
+              className={selectClass}
+              value={filters.section ?? ""}
+              onChange={(event) => {
+                const { section: _, ...rest } = filters;
+                const selected = WORK_DASHBOARD_SECTIONS.find(
+                  (section) => section.id === event.target.value,
+                );
+                setFilters(
+                  selected ? { ...rest, section: selected.id, offset: 0 } : { ...rest, offset: 0 },
+                );
+              }}
+            >
+              <option value="">All sections</option>
+              {WORK_DASHBOARD_SECTIONS.map((section) => (
+                <option key={section.id} value={section.id}>
+                  {section.title}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         {query.error && (
           <p role="alert" className="text-sm text-destructive">
             {query.error}
           </p>
         )}
         {!query.data && !query.error && <p className="text-muted-foreground">Loading dashboard…</p>}
-        <div
-          className={
-            filters.section ? "grid gap-4" : "grid items-start gap-4 lg:grid-cols-2 xl:grid-cols-3"
-          }
-        >
-          {query.data?.sections.map((section) => (
+        {query.data && !query.error && sections.length === 0 && (
+          <div className="grid justify-items-center gap-3 rounded-xl border border-dashed px-6 py-16 text-center">
+            <h3 className="text-lg font-medium">
+              {filterCount ? "No matching tasks" : "No tasks to show"}
+            </h3>
+            <p className="max-w-sm text-sm text-muted-foreground">
+              {filterCount
+                ? "Try changing or clearing your filters."
+                : "New work will appear here. Manage all your tasks in the Work queue."}
+            </p>
+            <Link
+              className="text-sm font-medium hover:underline"
+              to="/work"
+              search={{ tab: "queue" }}
+            >
+              Open work queue
+            </Link>
+          </div>
+        )}
+        <div className={filters.section ? "grid gap-4" : "grid items-start gap-4 lg:grid-cols-2"}>
+          {sections.map((section) => (
             <section key={section.id} className="min-w-0 rounded-xl border bg-card p-4">
               <div className="mb-3 flex items-center justify-between gap-2">
                 <h3 className="font-semibold">
@@ -314,30 +353,31 @@ function WorkDashboardPanel({
             </section>
           ))}
         </div>
-        <section className="rounded-xl border bg-card p-4">
-          <h3 className="mb-3 font-semibold">Recent Activity</h3>
-          <p className="mb-3 text-xs text-muted-foreground">
-            Latest 12 events for the current filters. PR information reflects the latest sync.
-          </p>
-          {query.data?.activity.length === 0 && (
-            <p className="text-sm text-muted-foreground">No matching activity.</p>
-          )}
-          <ol className="divide-y">
-            {query.data?.activity.map((event) => (
-              <li key={event.id} className="grid gap-1 py-3 sm:grid-cols-[1fr_auto]">
-                <button
-                  className="text-left text-sm hover:underline"
-                  onClick={() => onActivity(event.workItemId)}
-                >
-                  {event.workItemTitle} · {event.title}
-                </button>
-                <time className="text-xs text-muted-foreground" dateTime={event.occurredAt}>
-                  {new Date(event.occurredAt).toLocaleString()}
-                </time>
-              </li>
-            ))}
-          </ol>
-        </section>
+        {!!query.data?.activity.length && (
+          <details className="border-t pt-4">
+            <summary className="cursor-pointer text-sm font-medium text-muted-foreground">
+              Recent activity ({query.data.activity.length})
+            </summary>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Latest 12 events for the current filters. PR information reflects the latest sync.
+            </p>
+            <ol className="divide-y">
+              {query.data?.activity.map((event) => (
+                <li key={event.id} className="grid gap-1 py-3 sm:grid-cols-[1fr_auto]">
+                  <button
+                    className="text-left text-sm hover:underline"
+                    onClick={() => onActivity(event.workItemId)}
+                  >
+                    {event.workItemTitle} · {event.title}
+                  </button>
+                  <time className="text-xs text-muted-foreground" dateTime={event.occurredAt}>
+                    {new Date(event.occurredAt).toLocaleString()}
+                  </time>
+                </li>
+              ))}
+            </ol>
+          </details>
+        )}
       </div>
     </div>
   );

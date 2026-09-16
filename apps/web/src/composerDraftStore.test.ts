@@ -1601,6 +1601,32 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.prompt).toBe("promote me");
   });
 
+  it("keeps Vercel selection with the draft and resets it when switching repositories", async () => {
+    await useComposerDraftStore.persist.clearStorage();
+    vi.useFakeTimers();
+    try {
+      const store = useComposerDraftStore.getState();
+      store.setProjectDraftThreadId(projectRef, draftId, { threadId });
+      store.setDraftThreadContext(draftId, { vercel: { project: "prj_app" } });
+      await vi.advanceTimersByTimeAsync(300);
+      resetComposerDraftStore();
+      await useComposerDraftStore.persist.rehydrate();
+      expect(useComposerDraftStore.getState().getDraftThread(draftId)?.vercel).toEqual({
+        project: "prj_app",
+      });
+      store.setDraftThreadContext(draftId, { branch: "codex/new" });
+      expect(useComposerDraftStore.getState().getDraftThread(draftId)?.vercel).toEqual({
+        project: "prj_app",
+      });
+      store.setDraftThreadContext(draftId, {
+        projectRef: scopeProjectRef(TEST_ENVIRONMENT_ID, ProjectId.make("another-project")),
+      });
+      expect(useComposerDraftStore.getState().getDraftThread(draftId)?.vercel).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("updates branch context on an existing draft thread", () => {
     const store = useComposerDraftStore.getState();
     store.setProjectDraftThreadId(projectRef, draftId, {

@@ -212,6 +212,235 @@ function makeService(input: {
   );
 }
 
+it.effect(
+  "lists PRs outside local repositories and routes remote-only PRs without a checkout",
+  () =>
+    Effect.gen(function* () {
+      const calls: string[] = [];
+      const service = yield* makeService({
+        projects: [
+          project({
+            id: "local",
+            title: "Local",
+            workspaceRoot: "/missing-checkout",
+            repository: "me/local",
+          }),
+        ],
+        providers: [
+          fakeProvider("github", {
+            withVerifiedCredential: (_, use) =>
+              use({ accountId: "123", viewer: "me", credentialFingerprint: "token-a" }),
+            getRoutingIdentity: () => Effect.succeed({ accountId: "123", viewer: "me" }),
+            listAccountChangeRequests: (input) => {
+              calls.push(input.cursor ?? "first");
+              assert.strictEqual(input.viewer, "me");
+              assert.notStrictEqual(input.cwd, "/missing-checkout");
+              return Effect.succeed({
+                items: [
+                  {
+                    ...changeRequest(634, "2026-09-16T10:00:00Z"),
+                    repository: input.cursor ? "other/repo" : "GDCh-de/website",
+                  },
+                ],
+                nextCursor: input.cursor ? null : "github-next-page",
+              });
+            },
+            listChangeRequests: () =>
+              Effect.die("Account feeds must not enumerate local repositories"),
+            getChangeRequest: (input) => {
+              assert.strictEqual(input.repository.toLowerCase(), "gdch-de/website");
+              assert.strictEqual(input.number, 634);
+              return Effect.succeed(hostedChangeRequest("Remote PR"));
+            },
+          }),
+        ],
+      });
+      const first = yield* service.list({ state: "all" });
+      assert.strictEqual(first.entries[0]?.repository, "GDCh-de/website");
+      assert.strictEqual(first.entries[0]?.projectTitle, "GDCh-de/website");
+      assert.strictEqual(first.truncated, true);
+      const entry = first.entries[0]!;
+      const detail = yield* service.detail(entry);
+      assert.strictEqual(detail.repository.toLowerCase(), "gdch-de/website");
+      const next = yield* service.list({ state: "all", cursors: first.nextCursors });
+      assert.strictEqual(next.entries[0]?.repository, "other/repo");
+      assert.strictEqual(next.entries[0]?.number, 634);
+      assert.strictEqual(next.truncated, false);
+      assert.deepEqual(calls, ["first", "github-next-page"]);
+    }),
+);
+
+it.effect(
+  "loads the account feed without local projects and never reuses another account's cached feed",
+  () =>
+    Effect.gen(function* () {
+      let viewer = "first";
+      let reads = 0;
+      let connected = true;
+      const service = yield* makeService({
+        projects: [],
+        providers: [
+          fakeProvider("github", {
+            withVerifiedCredential: (_, use) =>
+              connected
+                ? use({ accountId: viewer, viewer, credentialFingerprint: viewer })
+                : Effect.fail(
+                    new PullRequestProviderError({
+                      provider: "github",
+                      operation: "auth",
+                      reason: "unauthenticated",
+                      detail: "Connect GitHub",
+                    }),
+                  ),
+            getRoutingIdentity: () => Effect.succeed({ accountId: viewer, viewer }),
+            listAccountChangeRequests: (input) => {
+              reads++;
+              return Effect.succeed({
+                items: [
+                  {
+                    ...changeRequest(1, "2026-09-16T10:00:00Z"),
+                    repository: `${input.viewer}/repo`,
+                  },
+                ],
+                nextCursor: null,
+              });
+            },
+          }),
+        ],
+      });
+      assert.strictEqual(
+        (yield* service.list({ state: "open" })).entries[0]?.repository,
+        "first/repo",
+      );
+      yield* service.list({ state: "open" });
+      assert.strictEqual(reads, 1);
+      viewer = "second";
+      assert.strictEqual(
+        (yield* service.list({ state: "open" })).entries[0]?.repository,
+        "second/repo",
+      );
+      assert.strictEqual(reads, 2);
+      assert.strictEqual((yield* service.routingIdentity({ host: "github.com" })).viewer, "second");
+      connected = false;
+      assert.strictEqual(
+        (yield* service.list({ state: "open" }).pipe(Effect.flip))._tag,
+        "PullRequestUnavailableError",
+      );
+    }),
+);
+
+it.effect("keeps repository-filtered account feeds separate in cache without local projects", () =>
+  Effect.gen(function* () {
+    const calls: (string | undefined)[] = [];
+    const service = yield* makeService({
+      projects: [],
+      providers: [
+        fakeProvider("github", {
+          withVerifiedCredential: (_, use) =>
+            use({ accountId: "123", viewer: "me", credentialFingerprint: "token" }),
+          listAccountChangeRequests: (input) => {
+            calls.push(input.filters?.repository);
+            return Effect.succeed({
+              items: [
+                {
+                  ...changeRequest(634, "2026-09-16T10:00:00Z"),
+                  repository: input.filters?.repository ?? "unfiltered/repo",
+                },
+              ],
+              nextCursor: null,
+            });
+          },
+        }),
+      ],
+    });
+    for (const repository of ["GDCh-de/website", "other/repo", "GDCh-de/website", undefined]) {
+      const page = yield* service.list({
+        state: "open",
+        ...(repository ? { filters: { repository } } : {}),
+      });
+      assert.strictEqual(page.entries[0]?.repository, repository ?? "unfiltered/repo");
+    }
+    assert.deepEqual(calls, ["GDCh-de/website", "other/repo", undefined]);
+  }),
+);
+
+it.effect(
+  "narrows local repository listings before fetching and preserves the filter in cache",
+  () =>
+    Effect.gen(function* () {
+      const calls: string[] = [];
+      const service = yield* makeService({
+        projects: ["One", "Two"].map((name) =>
+          project({
+            id: name,
+            title: name,
+            workspaceRoot: `/repo/${name}`,
+            repository: `acme/${name}`,
+          }),
+        ),
+        providers: [
+          fakeProvider("github", {
+            listChangeRequests: (input) => {
+              calls.push(input.repository);
+              assert.strictEqual(input.filters?.repository, input.repository.toLowerCase());
+              return Effect.succeed({
+                items: [changeRequest(1, "2026-09-16T10:00:00Z")],
+                truncated: false,
+                continues: true,
+              });
+            },
+          }),
+        ],
+      });
+      for (const name of ["One", "Two", "One"]) {
+        const page = yield* service.list({
+          state: "open",
+          filters: { repository: `acme/${name.toLowerCase()}` },
+        });
+        assert.deepEqual(
+          page.entries.map((entry) => entry.repository),
+          [`acme/${name}`],
+        );
+      }
+      assert.deepEqual(calls, ["acme/One", "acme/Two"]);
+    }),
+);
+
+it.effect("keeps an explicit project filter scoped to its repository", () =>
+  Effect.gen(function* () {
+    const local = project({
+      id: "local",
+      title: "Local",
+      workspaceRoot: "/repo",
+      repository: "me/local",
+    });
+    const service = yield* makeService({
+      projects: [local],
+      providers: [
+        fakeProvider("github", {
+          withVerifiedCredential: (_, use) =>
+            use({ accountId: "123", viewer: "me", credentialFingerprint: "token" }),
+          listAccountChangeRequests: () =>
+            Effect.die("A project filter must not read the account feed"),
+          listChangeRequests: (input) => {
+            assert.strictEqual(input.repository, "me/local");
+            return Effect.succeed({
+              items: [changeRequest(1, "2026-09-16T10:00:00Z")],
+              truncated: false,
+              continues: true,
+            });
+          },
+        }),
+      ],
+    });
+    const page = yield* service.list({ state: "open", projectId: local.id });
+    assert.deepEqual(
+      page.entries.map((entry) => entry.repository),
+      ["me/local"],
+    );
+  }),
+);
+
 it.effect("refines unknown self-hosted GitLab projects before listing merge requests", () =>
   Effect.gen(function* () {
     let refinementCalls = 0;

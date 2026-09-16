@@ -1,4 +1,18 @@
 import {
+  VercelProjectsInput,
+  VercelProjectsResult,
+  VercelReadInput,
+  VercelSnapshot,
+  VercelAdminInput,
+  VercelLinkInput,
+  VercelError,
+} from "./vercel.ts";
+import {
+  WorkTaskUpdateInput,
+  WorkTaskUpdateResult,
+  WorkTaskUpdateError,
+} from "./workTaskUpdates.ts";
+import {
   AutomationListInput,
   AutomationPage,
   AutomationMutation,
@@ -348,6 +362,11 @@ export const WS_METHODS = {
   githubIssuesMutate: "githubIssues.mutate",
   githubIssuesSubscribe: "githubIssues.subscribe",
   workItemsList: "workItems.list",
+  vercelRead: "vercel.read",
+  vercelProjects: "vercel.projects",
+  vercelAdmin: "vercel.admin",
+  vercelLink: "vercel.link",
+  workTaskUpdate: "workItems.postUpdate",
   workItemsGet: "workItems.get",
   workItemsMutate: "workItems.mutate",
   workItemsDelete: "workItems.delete",
@@ -1584,6 +1603,31 @@ export const WsRpcGroup = RpcGroup.make(
     payload: WorkItemListInput,
     success: WorkItemListResult,
     error: Schema.Union([WorkItemError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.vercelRead, {
+    payload: VercelReadInput,
+    success: VercelSnapshot,
+    error: Schema.Union([VercelError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.vercelProjects, {
+    payload: VercelProjectsInput,
+    success: VercelProjectsResult,
+    error: Schema.Union([VercelError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.vercelAdmin, {
+    payload: VercelAdminInput,
+    success: Schema.Void,
+    error: Schema.Union([VercelError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.vercelLink, {
+    payload: VercelLinkInput,
+    success: Schema.Void,
+    error: Schema.Union([VercelError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.workTaskUpdate, {
+    payload: WorkTaskUpdateInput,
+    success: WorkTaskUpdateResult,
+    error: Schema.Union([WorkTaskUpdateError, EnvironmentAuthorizationError]),
   }),
   Rpc.make(WS_METHODS.workItemsGet, {
     payload: Schema.Struct({ id: WorkItemId }),

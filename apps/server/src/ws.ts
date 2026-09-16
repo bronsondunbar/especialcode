@@ -1,3 +1,6 @@
+import * as Vercel from "./integrations/vercel/VercelService.ts";
+import * as VercelAdapter from "./integrations/vercel/VercelAdapter.ts";
+import * as WorkTaskUpdates from "./workItems/WorkTaskUpdateService.ts";
 import * as GitHubAccount from "./integrations/github/GitHubAccountService.ts";
 import * as WorkDashboard from "./workItems/WorkDashboardService.ts";
 import * as WorkAutomations from "./automations/WorkAutomationService.ts";
@@ -658,6 +661,8 @@ const makeWsRpcLayer = (
         yield* SourceControlRepositoryService.SourceControlRepositoryService;
       const pullRequests = yield* PullRequestService.PullRequestService;
       const workItems = yield* WorkItems.WorkItemService;
+      const workTaskUpdates = yield* WorkTaskUpdates.WorkTaskUpdateService;
+      const vercel = yield* Vercel.VercelService;
       const workPlans = yield* WorkPlans.WorkPlanService;
       const workReviews = yield* WorkReviews.WorkReviewService;
       const notifications = yield* Notifications.NotificationService;
@@ -1336,6 +1341,26 @@ const makeWsRpcLayer = (
               // terminals and provider sessions under the reused thread id.
               yield* threadDeletionReactor.drainThrough(created.sequence);
               createdThread = true;
+              if (bootstrap.createThread.vercel) {
+                const selection = bootstrap.createThread.vercel;
+                yield* vercel
+                  .link({
+                    projectId: bootstrap.createThread.projectId,
+                    threadId: command.threadId,
+                    ...(selection.project === null
+                      ? { kind: "unlink" as const }
+                      : {
+                          kind: "link" as const,
+                          vercelProject: selection.project,
+                          branch: null,
+                        }),
+                  })
+                  .pipe(
+                    Effect.mapError((cause) =>
+                      toDispatchCommandError(cause, "Could not link Vercel."),
+                    ),
+                  );
+              }
             }
 
             if (prepareWorktree && shouldPrepareWorktree && worktreeBaseRef) {
@@ -1712,6 +1737,16 @@ const makeWsRpcLayer = (
           observeRpcStream(WS_METHODS.workPlansSubscribe, workPlans.subscribe(input.id)),
         [WS_METHODS.workItemsList]: (input) =>
           observeRpcEffect(WS_METHODS.workItemsList, workItems.list(input)),
+        [WS_METHODS.vercelRead]: (input) =>
+          observeRpcEffect(WS_METHODS.vercelRead, vercel.read(input)),
+        [WS_METHODS.vercelProjects]: (input) =>
+          observeRpcEffect(WS_METHODS.vercelProjects, vercel.projects(input)),
+        [WS_METHODS.vercelAdmin]: (input) =>
+          observeRpcEffect(WS_METHODS.vercelAdmin, vercel.admin(input)),
+        [WS_METHODS.vercelLink]: (input) =>
+          observeRpcEffect(WS_METHODS.vercelLink, vercel.link(input)),
+        [WS_METHODS.workTaskUpdate]: (input) =>
+          observeRpcEffect(WS_METHODS.workTaskUpdate, workTaskUpdates.post(input)),
         [WS_METHODS.workItemsGet]: (input) =>
           observeRpcEffect(WS_METHODS.workItemsGet, workItems.get(input.id)),
         [WS_METHODS.workItemsDelete]: (input) =>
@@ -3532,6 +3567,10 @@ export const websocketRpcRouteLayer = Layer.unwrap(
         ),
     });
     const pullRequests = yield* PullRequestService.PullRequestService;
+    const vercelAdapter = yield* VercelAdapter.make;
+    const vercel = yield* Vercel.make.pipe(
+      Effect.provideService(VercelAdapter.VercelAdapter, vercelAdapter),
+    );
     const workItems = yield* WorkItems.make;
     const workActivity = yield* WorkActivity.make.pipe(
       Effect.provideService(WorkItems.WorkItemService, workItems),
@@ -3562,7 +3601,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
       Effect.provideService(WorkItems.WorkItemService, workItems),
     );
     const githubAdapter = yield* GitHubIssuesAdapter.make.pipe(
-      Effect.provide(Layer.mergeAll(GitHubCli.layer, SourceControlRateLimit.layer)),
+      Effect.provide(Layer.mergeAll(GitHubCli.layerConnected, SourceControlRateLimit.layer)),
     );
     const githubIssues = yield* GitHubIssues.make.pipe(
       Effect.provideService(WorkItems.WorkItemService, workItems),
@@ -3581,6 +3620,12 @@ export const websocketRpcRouteLayer = Layer.unwrap(
       Effect.provideService(ApplicationEvents.ApplicationEventService, applicationEvents),
     );
     yield* slack.start();
+    const workTaskUpdates = yield* WorkTaskUpdates.make.pipe(
+      Effect.provideService(WorkItems.WorkItemService, workItems),
+      Effect.provideService(GitHubIssues.GitHubIssuesService, githubIssues),
+      Effect.provideService(GitHubIssuesAdapter.GitHubIssuesAdapter, githubAdapter),
+      Effect.provideService(Slack.SlackService, slack),
+    );
     const notifications = yield* Notifications.make.pipe(
       Effect.provideService(ApplicationEvents.ApplicationEventService, applicationEvents),
       Effect.provideService(WorkItems.WorkItemService, workItems),
@@ -3672,14 +3717,20 @@ export const websocketRpcRouteLayer = Layer.unwrap(
                 Layer.provide(Layer.succeed(GitHubAccount.GitHubAccountService, githubAccount)),
                 Layer.provide(Layer.succeed(Slack.SlackService, slack)),
                 Layer.provide(
+                  Layer.mergeAll(
+                    Layer.succeed(Vercel.VercelService, vercel),
+                    Layer.succeed(WorkTaskUpdates.WorkTaskUpdateService, workTaskUpdates),
+                  ),
+                ),
+                Layer.provide(
                   SourceControlDiscovery.layer.pipe(
                     Layer.provide(
-                      SourceControlProviderRegistry.layer.pipe(
+                      SourceControlProviderRegistry.layerConnected.pipe(
                         Layer.provide(
                           Layer.mergeAll(
                             AzureDevOpsCli.layer,
                             BitbucketApi.layer,
-                            GitHubCli.layer,
+                            GitHubCli.layerConnected,
                             GitLabCli.layer,
                             ForgejoCli.layer,
                           ),

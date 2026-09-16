@@ -1393,6 +1393,7 @@ describe("thread outbox", () => {
         model: "gpt-5.4",
       },
       creation: {
+        vercel: { project: "prj_app" },
         projectId: ProjectId.make("project-1"),
         workspaceMode: "worktree",
         branch: "main",

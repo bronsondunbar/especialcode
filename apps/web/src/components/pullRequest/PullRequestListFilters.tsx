@@ -62,6 +62,8 @@ export interface PullRequestFilterOption<Value extends string> {
   readonly unavailable?: string | undefined;
 }
 
+const EMPTY_REPOSITORIES: ReadonlyArray<string> = [];
+
 export function PullRequestFilterOptionIcon<Value extends string>({
   option,
 }: {
@@ -246,6 +248,79 @@ function PullRequestFilterRadioSubmenu<Value extends string>({
   );
 }
 
+function PullRequestRepositoryFilter({
+  value,
+  options,
+  onChange,
+}: {
+  value: string | undefined;
+  options: ReadonlyArray<string>;
+  onChange: (repository: string | undefined) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const trimmed = query.trim();
+  const needle = trimmed.toLowerCase();
+  const selected = value?.toLowerCase() ?? "";
+  const visible = options.filter((name) => name.toLowerCase().includes(needle)).slice(0, 10);
+  const custom =
+    /^[\w.-]+\/[\w.-]+$/.test(trimmed) && !visible.some((name) => name.toLowerCase() === needle)
+      ? trimmed
+      : undefined;
+  const select = (next: string) => next.toLowerCase() !== selected && onChange(next || undefined);
+  return (
+    <MenuSub>
+      <MenuSubTrigger>
+        <FolderGit2Icon aria-hidden className="size-3.5" />
+        <span className="flex-1">Repository</span>
+        <span className="min-w-0 max-w-28 truncate text-xs text-muted-foreground">
+          {value ?? "All repositories"}
+        </span>
+      </MenuSubTrigger>
+      <MenuSubPopup className="w-80">
+        <div className="p-1 pb-2">
+          <InputGroup>
+            <InputGroupAddon>
+              <SearchIcon aria-hidden />
+            </InputGroupAddon>
+            <InputGroupInput
+              autoFocus
+              size="compact"
+              value={query}
+              maxLength={200}
+              onChange={(event) => setQuery(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "ArrowDown" && event.key !== "Escape") event.stopPropagation();
+                if (event.key === "Enter" && /^[\w.-]+\/[\w.-]+$/.test(trimmed)) {
+                  event.preventDefault();
+                  select(trimmed);
+                }
+              }}
+              placeholder="Search or enter owner/repository"
+              aria-label="Search repositories"
+            />
+          </InputGroup>
+        </div>
+        <MenuRadioGroup value={selected} onValueChange={select}>
+          <MenuRadioItem value="">All repositories</MenuRadioItem>
+          {visible.map((name) => (
+            <MenuRadioItem key={name.toLowerCase()} value={name.toLowerCase()}>
+              <span className="truncate">{name}</span>
+            </MenuRadioItem>
+          ))}
+          {custom ? (
+            <MenuRadioItem value={custom.toLowerCase()}>
+              <span className="truncate">Use {custom}</span>
+            </MenuRadioItem>
+          ) : null}
+          {visible.length === 0 && !custom ? (
+            <MenuItem disabled>Enter a full owner/repository name</MenuItem>
+          ) : null}
+        </MenuRadioGroup>
+      </MenuSubPopup>
+    </MenuSub>
+  );
+}
+
 function PullRequestAuthorFilter({
   value,
   options,
@@ -399,6 +474,7 @@ export function PullRequestFiltersMenu({
   onInvolvement,
   filters,
   onFilters,
+  repositoryOptions = EMPTY_REPOSITORIES,
   authorOptions = [],
   labelOptions = [],
   host,
@@ -423,6 +499,7 @@ export function PullRequestFiltersMenu({
   /** The narrowings beyond state and involvement; an absent field is that group unfiltered. */
   filters: PullRequestListFilters;
   onFilters: (filters: PullRequestListFilters) => void;
+  repositoryOptions?: ReadonlyArray<string>;
   authorOptions?: ReadonlyArray<PullRequestAuthorFacet>;
   labelOptions?: ReadonlyArray<PullRequestLabelFacet>;
   host: string | undefined;
@@ -467,6 +544,7 @@ export function PullRequestFiltersMenu({
     filters.review,
     filters.checks,
     filters.author,
+    filters.repository,
     ...selectedLabels,
   ].filter(Boolean).length;
   const updateFilters = (next: Partial<PullRequestListFilters>) =>
@@ -533,6 +611,11 @@ export function PullRequestFiltersMenu({
           onChange={onInvolvement}
         />
         <MenuSeparator />
+        <PullRequestRepositoryFilter
+          value={filters.repository}
+          options={repositoryOptions}
+          onChange={(repository) => updateFilters({ repository })}
+        />
         <PullRequestAuthorFilter
           value={filters.author}
           options={authorOptions}

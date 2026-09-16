@@ -1,3 +1,4 @@
+import { layer as secretStoreLayer } from "../auth/ServerSecretStore.ts";
 import * as Cache from "effect/Cache";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
@@ -296,6 +297,7 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
 
 export const make = Effect.gen(function* () {
   const github = yield* GitHubSourceControlProvider.make;
+  const githubDiscovery = yield* GitHubSourceControlProvider.makeDiscovery;
   const gitlab = yield* GitLabSourceControlProvider.make;
   const forgejo = yield* ForgejoSourceControlProvider.make;
   const forgejoDiscovery = yield* ForgejoSourceControlProvider.makeDiscovery;
@@ -306,7 +308,7 @@ export const make = Effect.gen(function* () {
     {
       kind: "github",
       provider: github,
-      discovery: GitHubSourceControlProvider.discovery,
+      discovery: githubDiscovery,
     },
     {
       kind: "gitlab",
@@ -328,3 +330,5 @@ export const make = Effect.gen(function* () {
 });
 
 export const layer = Layer.effect(SourceControlProviderRegistry, make);
+
+export const layerConnected = layer.pipe(Layer.provide(secretStoreLayer));

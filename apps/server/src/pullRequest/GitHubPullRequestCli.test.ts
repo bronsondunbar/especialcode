@@ -14,6 +14,7 @@ import * as GitHubPullRequestCli from "./GitHubPullRequestCli.ts";
 import { BASE_COMPARISON_GRAPHQL_QUERY } from "./gitHubPullRequestJson.ts";
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+const personalScope = '(author:"bilal" OR assignee:"bilal" OR review-requested:"bilal")';
 
 const mockedExecute = vi.fn<GitHubCli.GitHubCli["Service"]["execute"]>();
 const mockedStackMemberships = vi.fn<GitHubCli.GitHubCli["Service"]["execute"]>(() =>
@@ -56,6 +57,7 @@ function pullRequests(
     Array.from({ length: count }, (_, index) => ({
       number: firstNumber + index,
       title: `Pull request ${firstNumber + index}`,
+      author: { login: "bilal" },
       url: `https://github.com/acme/web/pull/${firstNumber + index}`,
       headRefName: "feat/page",
       baseRefName: "main",
@@ -597,6 +599,97 @@ layer("GitHubPullRequestCli.layer", (it) => {
     }),
   );
 
+  it.effect("searches the whole account and uses GitHub cursors without dropping page rows", () =>
+    Effect.gen(function* () {
+      mockedExecute.mockReturnValueOnce(
+        Effect.succeed(
+          output(
+            encodeJson({
+              data: {
+                search: {
+                  pageInfo: { hasNextPage: true, endCursor: "next-page" },
+                  nodes: [
+                    searchItem(634, "GDCh-de/website", "2026-09-16T10:00:00Z"),
+                    searchItem(634, "other/repo", "2026-09-16T09:00:00Z"),
+                  ],
+                },
+              },
+            }),
+          ),
+        ),
+      );
+      mockedExecute.mockReturnValueOnce(
+        Effect.succeed(
+          output(
+            encodeJson({
+              data: {
+                search: {
+                  pageInfo: { hasNextPage: false, endCursor: "last-page" },
+                  nodes: [searchItem(635, "third/repo", "2026-09-15T09:00:00Z")],
+                },
+              },
+            }),
+          ),
+        ),
+      );
+      const cli = yield* GitHubPullRequestCli.GitHubPullRequestCli;
+      const input = {
+        cwd: "/w",
+        host: "github.com",
+        state: "open" as const,
+        involvement: "all" as const,
+        viewer: "bilal",
+        limit: 2,
+      };
+      const first = yield* cli.listAccountPullRequests(input);
+      expect(first.items.map((row) => row.repository)).toEqual(["GDCh-de/website", "other/repo"]);
+      expect(first.nextCursor).toBe("next-page");
+      expect(searchQueryOfCall(0)).toBe(`is:pr ${personalScope} is:open sort:updated-desc`);
+      expect(callAt(0).stdin).toContain("first: 2, after: $after");
+      const next = yield* cli.listAccountPullRequests({ ...input, cursor: first.nextCursor! });
+      expect(callAt(1).stdin).toContain('"after":"next-page"');
+      expect(next.items[0]?.repository).toBe("third/repo");
+      expect(next.nextCursor).toBeNull();
+    }),
+  );
+
+  it.effect(
+    "narrows the account search by repository while preserving personal scope and paging",
+    () =>
+      Effect.gen(function* () {
+        mockedExecute.mockReturnValueOnce(
+          Effect.succeed(
+            output(
+              encodeJson({
+                data: {
+                  search: {
+                    pageInfo: { hasNextPage: false, endCursor: null },
+                    nodes: [searchItem(634, "GDCh-de/website", "2026-09-16T10:00:00Z")],
+                  },
+                },
+              }),
+            ),
+          ),
+        );
+        const cli = yield* GitHubPullRequestCli.GitHubPullRequestCli;
+        const page = yield* cli.listAccountPullRequests({
+          cwd: "/w",
+          host: "github.com",
+          state: "open",
+          involvement: "all",
+          viewer: "bilal",
+          limit: 10,
+          cursor: "repo-next-page",
+          filters: { repository: "GDCh-de/website" },
+        });
+        expect(searchQueryOfCall(0)).toBe(
+          `is:pr ${personalScope} is:open repo:"GDCh-de/website" sort:updated-desc`,
+        );
+        expect(callAt(0).stdin).toContain('"after":"repo-next-page"');
+        expect(page.items.map((row) => row.repository)).toEqual(["GDCh-de/website"]);
+      }),
+  );
+
   it.effect("asks for one row more than the page, to probe for a next page", () =>
     Effect.gen(function* () {
       mockedExecute.mockReturnValueOnce(Effect.succeed(output(pullRequests(3, 1))));
@@ -660,7 +753,7 @@ layer("GitHubPullRequestCli.layer", (it) => {
       });
 
       // `--state closed` includes merged pull requests, so the tab narrows through search.
-      expect(searchOfCall(0)).toBe("is:unmerged sort:updated-desc");
+      expect(searchOfCall(0)).toBe(personalScope + " is:unmerged sort:updated-desc");
     }),
   );
 
@@ -775,9 +868,12 @@ layer("GitHubPullRequestCli.layer", (it) => {
       // it — and the whole document travels over stdin rather than in a visible argv.
       assert.strictEqual(
         searchQueryOfCall(0),
-        'is:pr is:open "x\\" is:merged repo:evil/repo" sort:updated-desc repo:acme/web',
+        "is:pr " +
+          personalScope +
+          ' is:open "x\\" is:merged repo:evil/repo" sort:updated-desc repo:acme/web',
       );
       expect(callAt(0).args).not.toContain("-f");
+      expect(callAt(0).stdin).toContain("type: ISSUE_ADVANCED");
     }),
   );
 
@@ -1073,7 +1169,7 @@ layer("GitHubPullRequestCli.layer", (it) => {
 
       // The recency qualifier rides along, because free text would otherwise reorder the page
       // by relevance and truncation would drop the newest matches.
-      expect(searchOfCall(0)).toBe('"pull requests page" sort:updated-desc');
+      expect(searchOfCall(0)).toBe(personalScope + ' "pull requests page" sort:updated-desc');
     }),
   );
 
@@ -1126,7 +1222,9 @@ layer("GitHubPullRequestCli.layer", (it) => {
       // Quotes around anything a reader typed, and the one character that could end a quoted
       // value early dropped rather than escaped.
       expect(searchOfCall(0)).toBe(
-        'label:"needs design" label:"quote" -label:"wip" author:"octocat" draft:false ' +
+        personalScope +
+          " " +
+          'label:"needs design" label:"quote" -label:"wip" author:"octocat" draft:false ' +
           "review:changes_requested status:failure sort:updated-desc",
       );
     }),
@@ -1148,7 +1246,7 @@ layer("GitHubPullRequestCli.layer", (it) => {
         filters: { author: "me" },
       });
 
-      expect(searchOfCall(0)).toBe('author:"bilal" sort:updated-desc');
+      expect(searchOfCall(0)).toBe(personalScope + ' author:"bilal" sort:updated-desc');
     }),
   );
 
@@ -1169,8 +1267,12 @@ layer("GitHubPullRequestCli.layer", (it) => {
       });
 
       // One qualifier satisfied by either size, and a second one that must hold as well.
-      expect(searchOfCall(0)).toBe('label:"size:S","size:XS" label:"bug" sort:updated-desc');
-      expect(callAt(0).args).toContain('label:"size:S","size:XS" label:"bug" sort:updated-desc');
+      expect(searchOfCall(0)).toBe(
+        personalScope + ' label:"size:S","size:XS" label:"bug" sort:updated-desc',
+      );
+      expect(callAt(0).args).toContain(
+        personalScope + ' label:"size:S","size:XS" label:"bug" sort:updated-desc',
+      );
     }),
   );
 
@@ -1295,7 +1397,9 @@ layer("GitHubPullRequestCli.layer", (it) => {
 
       assert.strictEqual(
         searchQueryOfCall(0),
-        'is:pr is:open label:"bug" draft:true review:none sort:updated-desc repo:acme/web',
+        "is:pr " +
+          personalScope +
+          ' is:open label:"bug" draft:true review:none sort:updated-desc repo:acme/web',
       );
     }),
   );
@@ -1319,7 +1423,9 @@ layer("GitHubPullRequestCli.layer", (it) => {
       // Every word stays inside one phrase: nothing before it, nothing after it, and the
       // leading dashes are text rather than the start of another argument.
       expect(searchOfCall(0)).toBe(
-        String.raw`"-- is:merged label:secret \"widen me\"" sort:updated-desc`,
+        personalScope +
+          " " +
+          String.raw`"-- is:merged label:secret \"widen me\"" sort:updated-desc`,
       );
       expect(callAt(0).args).not.toContain("is:merged");
     }),
@@ -1343,11 +1449,13 @@ layer("GitHubPullRequestCli.layer", (it) => {
 
       // GitHub reads `\\` as one backslash and `\"` as one quote, so the phrase ends where
       // this says it does; escaping the quote alone would have closed it early.
-      expect(searchOfCall(0)).toBe(String.raw`"a\\\" is:merged" sort:updated-desc`);
+      expect(searchOfCall(0)).toBe(
+        personalScope + " " + String.raw`"a\\\" is:merged" sort:updated-desc`,
+      );
     }),
   );
 
-  it.effect("asks for nothing but the order when the reader typed only spaces", () =>
+  it.effect("keeps the personal scope and order when the reader typed only spaces", () =>
     Effect.gen(function* () {
       mockedExecute.mockReturnValue(Effect.succeed(output("[]")));
       const cli = yield* GitHubPullRequestCli.GitHubPullRequestCli;
@@ -1365,7 +1473,7 @@ layer("GitHubPullRequestCli.layer", (it) => {
 
       // An empty phrase would match nothing rather than everything, so it is left out; the
       // order the page reads rows in is asked for whether or not anything was typed.
-      expect(searchOfCall(0)).toBe("sort:updated-desc");
+      expect(searchOfCall(0)).toBe(personalScope + " sort:updated-desc");
     }),
   );
 
@@ -1387,7 +1495,9 @@ layer("GitHubPullRequestCli.layer", (it) => {
 
       // Inclusive, so the rows already sent at that instant come back for the caller to drop —
       // which is what keeps the ones beside them from being skipped.
-      expect(searchOfCall(0)).toBe("updated:<=2026-07-02T00:00:00Z sort:updated-desc");
+      expect(searchOfCall(0)).toBe(
+        personalScope + " updated:<=2026-07-02T00:00:00Z sort:updated-desc",
+      );
       assert.isTrue(batch.continues);
     }),
   );
@@ -1443,6 +1553,43 @@ layer("GitHubPullRequestCli.layer", (it) => {
     }),
   );
 
+  it.effect(
+    "keeps only authored, assigned and review-requested PRs when search is unavailable",
+    () =>
+      Effect.gen(function* () {
+        mockedExecute.mockReturnValueOnce(Effect.succeed(output("[]")));
+        mockedExecute.mockReturnValueOnce(
+          Effect.succeed(
+            output(
+              pullRequests(5, 1, (number) => ({
+                author: { login: number === 1 ? "BILAL" : "someone-else" },
+                assignees: number === 2 ? [{ login: "bilal" }] : [],
+                reviewRequests:
+                  number === 3
+                    ? [{ login: "bilal" }]
+                    : number === 4
+                      ? [{ slug: "other-team" }]
+                      : [],
+              })),
+            ),
+          ),
+        );
+        const cli = yield* GitHubPullRequestCli.GitHubPullRequestCli;
+        const batch = yield* cli.listPullRequests({
+          cwd: "/w",
+          repository: "acme/web",
+          host: "github.com",
+          state: "open",
+          involvement: "all",
+          viewer: "bilal",
+          limit: 10,
+        });
+        expect(batch.items.map((item) => item.number)).toEqual([1, 2, 3]);
+        expect(searchOfCall(0)).toBe(personalScope + " sort:updated-desc");
+        expect(searchOfCall(1)).toBeUndefined();
+      }),
+  );
+
   it.effect("keeps state and involvement filters on the search-free fallback", () =>
     Effect.gen(function* () {
       mockedExecute.mockReturnValueOnce(Effect.succeed(output("[]")));
@@ -1470,9 +1617,8 @@ layer("GitHubPullRequestCli.layer", (it) => {
         limit: 10,
       });
 
-      // Individual requests for this viewer and team requests survive. The fallback cannot
-      // resolve team membership, so dropping team-routed reviews would hide legitimate work.
-      expect(batch.items.map((item) => item.number)).toEqual([1, 2]);
+      // Keep direct review requests; an unknown team membership must not widen the personal feed.
+      expect(batch.items.map((item) => item.number)).toEqual([1]);
       expect(searchOfCall(1)).toBeUndefined();
       assert.isFalse(batch.continues);
     }),
@@ -2567,6 +2713,39 @@ layer("GitHubPullRequestCli.layer", (it) => {
     }),
   );
 
+  for (const ErrorType of [
+    GitHubCli.GitHubCliUnavailableError,
+    GitHubCli.GitHubCliAuthenticationError,
+    GitHubCli.GitHubCliRateLimitError,
+    GitHubCli.GitHubCliCommandError,
+  ]) {
+    for (const stage of ["token", "identity"]) {
+      it.effect(
+        `preserves ${ErrorType.name} during ${stage} lookup without leaking credentials`,
+        () =>
+          Effect.gen(function* () {
+            const failure = new ErrorType({
+              command: "gh",
+              cwd: "/w",
+              cause: new Error("output contains private-token"),
+            });
+            if (stage === "identity")
+              mockedExecute.mockReturnValueOnce(Effect.succeed(output("private-token")));
+            mockedExecute.mockReturnValueOnce(Effect.fail(failure));
+            const cli = yield* GitHubPullRequestCli.GitHubPullRequestCli;
+            const error = yield* cli
+              .getRoutingIdentity({ cwd: "/w", host: `${stage}-${failure._tag}.test` })
+              .pipe(Effect.flip);
+
+            expect(error._tag).toBe(failure._tag);
+            expect(String(error)).not.toContain("private-token");
+            expect(encodeJson(error)).not.toContain("private-token");
+            expect(error.cause).not.toBe(failure.cause);
+          }),
+      );
+    }
+  }
+
   it.effect("fails when the authenticated account has no login", () =>
     Effect.gen(function* () {
       mockedExecute.mockReturnValueOnce(Effect.succeed(output("  ")));
@@ -2628,8 +2807,9 @@ layer("GitHubPullRequestCli.layer", (it) => {
           ),
         );
       const failure = yield* cli.getRoutingIdentity(input).pipe(Effect.flip);
-      expect(failure._tag).toBe("GitHubViewerLoginUnavailableError");
+      expect(failure._tag).toBe("GitHubCliCommandError");
       expect(String(failure)).not.toContain("test-credential-b");
+      expect(encodeJson(failure)).not.toContain("test-credential-b");
       expect(callAt(4).env).toMatchObject({
         GH_ENTERPRISE_TOKEN: "test-credential-b",
         GH_DEBUG: "",
@@ -3033,6 +3213,46 @@ layer("GitHubPullRequestCli.layer", (it) => {
     }),
   );
 
+  it.effect("loads details and summaries with a repo-only token that cannot read teams", () =>
+    Effect.gen(function* () {
+      mockedExecute.mockImplementation((input) => {
+        const fields = input.args.at(-1)?.split(",") ?? [];
+        if (fields.includes("reviewRequests")) {
+          return Effect.fail(
+            new GitHubCli.GitHubCliCommandError({
+              command: "gh",
+              cwd: input.cwd,
+              cause: new Error("GraphQL: team fields require read:org; token only has repo"),
+            }),
+          );
+        }
+        return Effect.succeed(
+          output(
+            encodeJson({
+              number: 634,
+              title: "Repository-scoped access",
+              url: "https://github.com/GDCh-de/website/pull/634",
+              headRefName: "feature",
+              baseRefName: "main",
+              state: "OPEN",
+              createdAt: "2026-09-15T10:00:00Z",
+              updatedAt: "2026-09-16T10:00:00Z",
+              body: "PR details",
+              changedFiles: 2,
+            }),
+          ),
+        );
+      });
+      const cli = yield* GitHubPullRequestCli.GitHubPullRequestCli;
+      const input = { cwd: "/w", repository: "GDCh-de/website", host: "github.com", number: 634 };
+      const detail = yield* cli.getPullRequestDetail(input);
+      const summary = yield* cli.getPullRequestSummary(input);
+      expect(detail.body).toBe("PR details");
+      expect(summary.number).toBe(634);
+      expect(summary.changedFiles).toBe(2);
+    }),
+  );
+
   it.effect("keeps the core detail read separate from conversation activity", () =>
     Effect.gen(function* () {
       mockedExecute.mockReturnValueOnce(
@@ -3081,7 +3301,7 @@ layer("GitHubPullRequestCli.layer", (it) => {
       expect(detail.body).toBe("Core body");
       expect(activity.author?.login).toBe("octocat");
       expect(callAt(0).args.at(-1)).toBe(
-        "number,title,url,author,headRefName,baseRefName,state,isDraft,mergeable,reviewDecision,additions,deletions,createdAt,updatedAt,mergedAt,reviewRequests,labels,statusCheckRollup,body,changedFiles,closedAt,isCrossRepository,headRepositoryOwner,headRefOid,autoMergeRequest",
+        "number,title,url,author,headRefName,baseRefName,state,isDraft,mergeable,reviewDecision,additions,deletions,createdAt,updatedAt,mergedAt,assignees,labels,statusCheckRollup,body,changedFiles,closedAt,isCrossRepository,headRepositoryOwner,headRefOid,autoMergeRequest",
       );
       expect(callAt(1).args.at(-1)).toBe("author,comments,reviews,commits");
     }),

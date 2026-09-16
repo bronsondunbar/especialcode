@@ -151,6 +151,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   slack: Schema.optionalKey(Schema.Boolean),
   githubAccount: Schema.optionalKey(Schema.Boolean),
   workItemsDelete: Schema.optionalKey(Schema.Boolean),
+  workTaskUpdates: Schema.optionalKey(Schema.Boolean),
+  vercel: Schema.optionalKey(Schema.Boolean),
   githubIssues: Schema.optionalKey(Schema.Boolean),
   pullRequestStackActions: Schema.optionalKey(Schema.Boolean),
   /** The update path clients should offer for this server. Absent on

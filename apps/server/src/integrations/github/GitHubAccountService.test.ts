@@ -38,6 +38,7 @@ const setup = Effect.gen(function* () {
   const viewer = yield* Ref.make({ id: 123, login: "alice" });
   const called = yield* Ref.make(yield* Deferred.make<void>());
   const adapter = GitHubIssuesAdapter.of({
+    comment: () => Effect.die("unused"),
     viewer: () => Ref.get(viewer),
     assigned: () =>
       Effect.gen(function* () {

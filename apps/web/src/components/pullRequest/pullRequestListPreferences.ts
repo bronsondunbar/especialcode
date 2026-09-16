@@ -29,6 +29,7 @@ export interface PullRequestListPreferences {
   readonly review?: NonNullable<PullRequestListFilters["review"]>;
   readonly checks?: NonNullable<PullRequestListFilters["checks"]>;
   readonly author?: string;
+  readonly repo?: string;
   readonly labels?: ReadonlyArray<string>;
   readonly sort?: PullRequestListSort;
 }
@@ -54,6 +55,7 @@ const PullRequestListPreferencesSchema = Schema.Struct({
   review: PullRequestListFilters.fields.review,
   checks: PullRequestListFilters.fields.checks,
   author: Schema.optional(BoundedPreference),
+  repo: Schema.optional(BoundedPreference),
   labels: Schema.optional(Schema.Array(BoundedPreference).check(Schema.isMaxLength(10))),
   sort: Schema.optional(PullRequestListSort),
 });
@@ -85,6 +87,7 @@ export function pullRequestListPreferences(
     ...(search.review ? { review: search.review } : {}),
     ...(search.checks ? { checks: search.checks } : {}),
     ...(search.author ? { author: search.author } : {}),
+    ...(search.repo ? { repo: search.repo } : {}),
     ...(search.labels && search.labels.length > 0 ? { labels: search.labels } : {}),
     ...(search.sort && search.sort !== "ready" ? { sort: search.sort } : {}),
   };

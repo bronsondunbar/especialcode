@@ -1,3 +1,4 @@
+import { VercelThreadSelection } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import {
   EnvironmentId as EnvironmentIdSchema,
@@ -319,6 +320,7 @@ export class ComposerDraftPersistenceError extends Schema.TaggedError<ComposerDr
 }
 
 export interface ComposerDraft {
+  readonly vercel?: VercelThreadSelection | null;
   readonly text: string;
   readonly context?: OrchestrationMessageContext;
   readonly attachments: ReadonlyArray<DraftComposerAttachment>;
@@ -357,7 +359,7 @@ export interface ComposerDraftWorkspaceSelection {
 
 export type ComposerDraftSettingsUpdate = Pick<
   ComposerDraft,
-  "modelSelection" | "runtimeMode" | "interactionMode" | "workspaceSelection" | "project"
+  "modelSelection" | "runtimeMode" | "interactionMode" | "workspaceSelection" | "project" | "vercel"
 >;
 
 const ComposerDraftWorkspaceSelectionSchema = Schema.Struct({
@@ -381,6 +383,7 @@ const PersistedComposerContextSchema = Schema.Struct({
 });
 
 const ComposerDraftSchema = Schema.Struct({
+  vercel: Schema.optionalKey(Schema.NullOr(VercelThreadSelection)),
   text: Schema.String,
   context: Schema.optional(PersistedComposerContextSchema),
   attachments: Schema.Array(DraftComposerAttachmentSchema),
@@ -543,6 +546,7 @@ function isEmptyDraft(draft: ComposerDraft): boolean {
     draft.modelSelection === undefined &&
     draft.runtimeMode === undefined &&
     draft.interactionMode === undefined &&
+    !draft.vercel &&
     draft.workspaceSelection === undefined
   );
 }
@@ -1148,6 +1152,8 @@ export async function removeDeliveredCloudQueuedMessage(
         (editor.runtimeMode !== undefined && editor.runtimeMode !== message.runtimeMode) ||
         (editor.interactionMode !== undefined &&
           editor.interactionMode !== message.interactionMode) ||
+        (editor.vercel !== undefined &&
+          JSON.stringify(editor.vercel) !== JSON.stringify(message.creation?.vercel ?? null)) ||
         (editor.workspaceSelection !== undefined &&
           (editor.workspaceSelection.mode !== message.creation?.workspaceMode ||
             editor.workspaceSelection.branch !== message.creation?.branch ||
@@ -1458,8 +1464,14 @@ export function updateComposerDraftSettings(
   settings: Partial<ComposerDraftSettingsUpdate>,
 ): void {
   updateComposerDrafts((current) => {
+    const previous = normalizeDraft(current[draftKey]);
+    const changedProject =
+      settings.project &&
+      (settings.project.projectId !== previous.project?.projectId ||
+        settings.project.environmentId !== previous.project?.environmentId);
     const draft = {
-      ...normalizeDraft(current[draftKey]),
+      ...previous,
+      ...(changedProject ? { vercel: null } : {}),
       ...settings,
     };
     return withComposerDraft(current, draftKey, draft);
@@ -1484,6 +1496,7 @@ export function clearComposerDraftContentState(
   const {
     importedShareIds: _importedShareIds,
     context: _context,
+    vercel: _vercel,
     modelSelection,
     workspaceSelection,
     project: _project,
@@ -1675,6 +1688,7 @@ export function sameComposerDraftState(a: ComposerDraft, b: ComposerDraft): bool
     a.modelSelection === b.modelSelection &&
     a.runtimeMode === b.runtimeMode &&
     a.interactionMode === b.interactionMode &&
+    a.vercel === b.vercel &&
     a.workspaceSelection === b.workspaceSelection
   );
 }
@@ -1708,7 +1722,12 @@ export function undoComposerDraftMergeState(
   // A setting still holding the merge's value is the merge's doing: restore
   // the snapshot's. One the user changed since the merge stays theirs.
   const undoSetting = <
-    K extends "modelSelection" | "runtimeMode" | "interactionMode" | "workspaceSelection",
+    K extends
+      | "modelSelection"
+      | "runtimeMode"
+      | "interactionMode"
+      | "workspaceSelection"
+      | "vercel",
   >(
     key: K,
   ): ComposerDraft[K] => (existing[key] === merged[key] ? snapshot[key] : existing[key]);
@@ -1729,6 +1748,7 @@ export function undoComposerDraftMergeState(
     runtimeMode: undoSetting("runtimeMode"),
     interactionMode: undoSetting("interactionMode"),
     workspaceSelection: undoSetting("workspaceSelection"),
+    vercel: undoSetting("vercel"),
   };
   return withComposerDraft(current, draftKey, draft);
 }
@@ -1852,7 +1872,11 @@ export function retargetNewTaskDraft(
     ) {
       return current;
     }
-    const { workspaceSelection: _workspaceSelection, ...retained } = normalizeDraft(existing);
+    const {
+      workspaceSelection: _workspaceSelection,
+      vercel: _vercel,
+      ...retained
+    } = normalizeDraft(existing);
     // Pending uploads live on one server. Crossing environments keeps the
     // local bytes (the upload worker re-sends them to the new environment)
     // but drops the old stamp, so it cannot pin the source environment's

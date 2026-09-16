@@ -1,3 +1,4 @@
+import { VercelDraftButton } from "../vercel/VercelDraftButton";
 import { useAtomValue } from "@effect/atom-react";
 import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
 import {
@@ -1393,6 +1394,14 @@ export function NewTaskDraftScreen(props: {
         </View>
       </View>
 
+      {flow.draftKey && (
+        <VercelDraftButton
+          environmentId={selectedProject.environmentId}
+          projectId={selectedProject.id}
+          draftKey={flow.draftKey}
+          disabled={isComposerInteractionLocked}
+        />
+      )}
       <ComposerInlineControl
         accessibilityLabel={`Environment: ${selectedEnvironmentLabel}`}
         chevronDirection="right"

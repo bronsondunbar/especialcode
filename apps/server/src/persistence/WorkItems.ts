@@ -22,6 +22,8 @@ export const makeWorkItemRepository = Effect.gen(function* () {
   });
   const list = Effect.fn("WorkItemRepository.list")(function* (input: WorkItemListInput) {
     const conditions = [input.archived ? sql`archived_at IS NOT NULL` : sql`archived_at IS NULL`];
+    if (input.agentThreadId !== undefined)
+      conditions.push(sql`json_extract(record_json, '$.agentThreadId') = ${input.agentThreadId}`);
     if (input.projectId !== undefined) conditions.push(sql`project_id IS ${input.projectId}`);
     if (input.parentWorkItemId !== undefined)
       conditions.push(sql`parent_id IS ${input.parentWorkItemId}`);

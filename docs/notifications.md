@@ -1,6 +1,6 @@
 # Notifications
 
-Open **Notifications** from the sidebar bell or command palette. On mobile, use the bell
+Open **Notifications** from the sidebar or command palette. On mobile, use the bell
 in the thread list or **Settings → Notifications**. Choose an environment to see its inbox;
 notifications and read state are shared with other clients connected to that environment.
 
@@ -14,12 +14,14 @@ Mark individual notifications read or unread, or mark all currently received not
 read. Read state survives reconnects and server restarts. The inbox begins collecting when
 the environment updates; it does not import old notification history.
 
-Open **Notification preferences** in the inbox to choose agent, GitHub and Slack categories
-and enable in-app or desktop delivery. These choices apply to future events across the
+On web and desktop, open **Settings → General → Behavior → Notification preferences**
+to choose agent, GitHub and Slack categories and enable in-app or desktop delivery.
+These choices apply to future events across the
 environment; disabling a category keeps existing inbox history. **Restore defaults** resets
 the environment's preferences. Slack options become active when Slack integration is available.
 
-On web or desktop, **Alerts on this device** enables native alerts and optional sound.
+On web or desktop, **Thread notifications** in the same Settings section enables native
+alerts and optional sound on this device.
 Browsers request notification permission; system settings and Focus/Do Not Disturb can
 suppress delivery. Desktop alerts prioritize input, completion, failures and PR review
 activity. Clicking an alert restores the desktop window and opens the matching WorkItem,

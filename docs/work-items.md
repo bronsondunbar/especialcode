@@ -22,7 +22,7 @@ Changes appear on other connected clients. If an edit conflicts with a newer cha
 cancel the edit and open it again to load the latest version before saving. Full
 descriptions are retained even when the queue shows only a preview.
 
-Use **Clear work queue** in the dashboard or queue to archive tasks across every project
+Use **Clear work queue** in the queue to archive tasks across every project
 and view in the selected environment. Confirm the task count before clearing; filters
 do not limit this action. Tasks planning, running or awaiting approval stay in the queue.
 Linked threads remain available, and tasks can be recovered through **Archived → Restore**.
@@ -52,6 +52,19 @@ replies** for longer Slack threads, or **Remove context** to leave it out. Long 
 shortened with a notice. The combined prompt stays editable in the chat composer before you
 send it; loading context does not post to GitHub or Slack.
 
+## Post an update from a thread
+
+Choose **Draft update** in a task-linked thread to prepare a comment from the latest completed
+agent response. Select the GitHub issue or Slack conversation, review and edit the text, then
+choose **Post GitHub comment** or **Post Slack reply**. Nothing is sent when opening or cancelling
+the draft. Long responses are shortened with a notice. You can write an update yourself if the
+thread has no completed response.
+
+Posting requires permission to operate on the environment. GitHub credentials need issue-comment
+write access; Slack connections need the `chat:write` user scope. If posting cannot be confirmed,
+check the original conversation before creating another draft. The app does not automatically
+resend uncertain updates.
+
 ## Activity timeline
 
 Choose **Activity** on a Work queue item, or open its plan/execution details and scroll to
@@ -76,3 +89,31 @@ Use the [dashboard](project-management.md#dashboard) to find work needing attent
 Import context from [GitHub](github-integration.md) or [Slack](slack-integration.md),
 then [plan, approve and execute](agent-orchestration.md). Follow results in
 [Notifications](notifications.md).
+
+## Follow Vercel deployments
+
+Open **Work → Vercel**, alongside GitHub and Slack. An environment administrator connects
+Vercel once using an access token and its Team ID when applicable. No local repository or
+Vercel project is required at this step. The token must have access to the projects and
+deployments you want to follow. The connection is saved on the selected environment;
+people with read access to that environment can view its deployments and build logs.
+
+When creating a thread from a Work task, select its Vercel project in the new-thread form.
+For an ordinary new thread, open **Vercel** in the draft before sending your first message.
+Search for a project or leave **Do not link to Vercel** selected. Connecting credentials
+does not automatically link threads.
+The choice is saved with the draft, including queued mobile drafts.
+
+Threads follow the selected project and their current Git branch automatically. In the web
+and desktop sidebar, use **Link Vercel project** beneath the active thread to configure it.
+Once linked, **Vercel deployments** opens build/deployment progress, logs and the deployment
+URL. On mobile, open **Vercel** from the thread. Use
+**Choose project** on an unlinked thread, or **Change project** to choose another project or branch. Leave the branch blank to keep
+following the thread's current branch. **Unlink thread** stops following deployments; you can
+choose a project again at any time.
+
+The panel refreshes every 15 seconds while open. Follow the latest deployment or select a
+recent one, load its build logs, and open its deployment URL. Logs show the latest 200 events,
+up to 64,000 characters. Builds are triggered by your existing Vercel workflow; this connection
+only monitors them. Disconnecting removes the local connection and thread links without
+deleting any Vercel projects or deployments.

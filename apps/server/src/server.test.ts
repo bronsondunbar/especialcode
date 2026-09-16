@@ -1863,6 +1863,30 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               }).pipe(Effect.flip);
               assert.equal(denied._tag, "EnvironmentAuthorizationError");
               assert.equal((yield* client[WS_METHODS.workItemsGet]({ id })).archivedAt, null);
+              const deniedUpdate = yield* client[WS_METHODS.workTaskUpdate]({
+                taskId: id,
+                threadId: ThreadId.make("not-linked"),
+                sourceKey: "github:github.com/example/repo:1",
+                body: "Reviewed text",
+                commandId: "denied-post",
+              }).pipe(Effect.flip);
+              assert.equal(deniedUpdate._tag, "EnvironmentAuthorizationError");
+              const vercelProjectId = ProjectId.make("vercel-scope-check");
+              const vercelRead = yield* client[WS_METHODS.vercelRead]({
+                projectId: vercelProjectId,
+              }).pipe(Effect.flip);
+              // Read-only callers reach the service's project validation, not an auth denial.
+              assert.equal(vercelRead._tag, "VercelError");
+              const vercelAdmin = yield* client[WS_METHODS.vercelAdmin]({
+                kind: "disconnect",
+              }).pipe(Effect.flip);
+              assert.equal(vercelAdmin._tag, "EnvironmentAuthorizationError");
+              const vercelLink = yield* client[WS_METHODS.vercelLink]({
+                kind: "unlink",
+                projectId: vercelProjectId,
+                threadId: ThreadId.make("vercel-scope-thread"),
+              }).pipe(Effect.flip);
+              assert.equal(vercelLink._tag, "EnvironmentAuthorizationError");
               const deniedDelete = yield* client[WS_METHODS.workItemsDelete]({
                 id,
                 expectedRevision: 1,
@@ -11531,6 +11555,65 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         setupActivities.every((command) => command.activity.kind !== "setup-script.failed"),
       );
       assertTrue(dispatchedCommands.every((command) => command.type !== "thread.delete"));
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("cleans up a new thread when its requested Vercel link cannot be configured", () =>
+    Effect.gen(function* () {
+      const commands: Array<OrchestrationCommand> = [];
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            dispatch: (command) =>
+              Effect.sync(() => {
+                commands.push(command);
+                return { sequence: commands.length };
+              }),
+            readEvents: () => Stream.empty,
+          },
+        },
+      });
+      const createdAt = "2026-01-01T00:00:00.000Z";
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
+            type: "thread.turn.start",
+            commandId: CommandId.make("cmd-vercel-create"),
+            threadId: ThreadId.make("thread-vercel-create"),
+            message: {
+              messageId: MessageId.make("msg-vercel-create"),
+              role: "user",
+              text: "hello",
+              attachments: [],
+            },
+            modelSelection: defaultModelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            bootstrap: {
+              createThread: {
+                projectId: defaultProjectId,
+                title: "Vercel thread",
+                modelSelection: defaultModelSelection,
+                runtimeMode: "full-access",
+                interactionMode: "default",
+                branch: "main",
+                worktreePath: null,
+                vercel: { project: "prj_app" },
+                createdAt,
+              },
+            },
+            createdAt,
+          }),
+        ).pipe(Effect.result),
+      );
+      assertTrue(result._tag === "Failure");
+      assertTrue(result.failure._tag === "OrchestrationDispatchCommandError");
+      assert.strictEqual(result.failure.bootstrapThreadDisposition, "deleted");
+      assert.deepEqual(
+        commands.map((command) => command.type),
+        ["thread.create", "thread.delete"],
+      );
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

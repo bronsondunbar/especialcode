@@ -274,12 +274,12 @@ const VcsDriverRegistryLayerLive = VcsDriverRegistry.layer.pipe(
   Layer.provide(VcsProjectConfig.layer),
 );
 
-const SourceControlProviderRegistryLayerLive = SourceControlProviderRegistry.layer.pipe(
+const SourceControlProviderRegistryLayerLive = SourceControlProviderRegistry.layerConnected.pipe(
   Layer.provide(
     Layer.mergeAll(
       AzureDevOpsCli.layer,
       BitbucketApi.layer,
-      GitHubCli.layer,
+      GitHubCli.layerConnected,
       GitLabCli.layer,
       ForgejoCli.layer,
     ),

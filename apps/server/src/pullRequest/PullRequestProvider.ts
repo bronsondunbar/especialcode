@@ -355,6 +355,25 @@ export interface PullRequestProviderApi {
     readonly filters?: PullRequestListFilters | undefined;
   }) => Effect.Effect<ProviderBatchedChangeRequestPage, PullRequestProviderError>;
 
+  /** Personal feed across the account, independent of local checkouts, with host-native paging. */
+  readonly listAccountChangeRequests?: (input: {
+    readonly cwd: string;
+    readonly host: string;
+    readonly state: PullRequestListState;
+    readonly involvement: PullRequestInvolvement;
+    readonly viewer: string;
+    readonly limit: number;
+    readonly query?: string | undefined;
+    readonly cursor?: string | undefined;
+    readonly filters?: PullRequestListFilters | undefined;
+  }) => Effect.Effect<
+    {
+      readonly items: ProviderBatchedChangeRequestPage["items"];
+      readonly nextCursor: string | null;
+    },
+    PullRequestProviderError
+  >;
+
   /**
    * The line counts for rows a listing has already handed over. Only implemented by a provider
    * whose listing leaves them out — for everyone else the numbers arrived with the row, and the

@@ -55,6 +55,7 @@ const decodeChannels = Schema.decodeUnknownEffect(
 const decodeInfo = Schema.decodeUnknownEffect(
   Schema.Struct({ channel: Schema.Struct({ id: SlackId, name: Schema.String }) }),
 );
+const decodePostedMessage = Schema.decodeUnknownEffect(Schema.Struct({ ts: SlackTimestamp }));
 const decodeLink = Schema.decodeUnknownEffect(Schema.Struct({ permalink: Schema.String }));
 export const OAuthToken = Schema.Struct({
   access_token: Schema.String,
@@ -102,7 +103,14 @@ export const make = Effect.gen(function* () {
           : base;
       const response = yield* http.execute(request).pipe(
         Effect.provideService(FetchHttpClient.RequestInit, { redirect: "error" }),
-        Effect.retry({ times: method === "oauth.v2.access" || method === "auth.revoke" ? 0 : 1 }),
+        Effect.retry({
+          times:
+            method === "oauth.v2.access" ||
+            method === "auth.revoke" ||
+            method === "chat.postMessage"
+              ? 0
+              : 1,
+        }),
         Effect.mapError(() => fail("unavailable", "Could not reach Slack. Please retry.")),
       );
       if (response.status === 429) {
@@ -115,10 +123,7 @@ export const make = Effect.gen(function* () {
         );
       }
       if (response.status === 401 || response.status === 403)
-        return yield* fail(
-          "authentication",
-          "Reconnect Slack and grant the required read permissions.",
-        );
+        return yield* fail("authentication", "Reconnect Slack and grant the required permissions.");
       if (response.status < 200 || response.status >= 300)
         return yield* fail("remote", "Slack is temporarily unavailable.");
       return yield* response.json.pipe(Effect.mapError(apiError));
@@ -135,10 +140,7 @@ export const make = Effect.gen(function* () {
           "invalid_refresh_token",
         ].includes(status.error ?? "")
       )
-        return yield* fail(
-          "authentication",
-          "Reconnect Slack and grant the required read permissions.",
-        );
+        return yield* fail("authentication", "Reconnect Slack and grant the required permissions.");
       if (
         ["channel_not_found", "thread_not_found", "message_not_found", "not_in_channel"].includes(
           status.error ?? "",
@@ -331,6 +333,28 @@ export const make = Effect.gen(function* () {
       message_ts: ts,
     }).pipe(Effect.flatMap(decodeLink), Effect.mapError(apiError))).permalink;
   });
+  const reply = Effect.fn("SlackAdapter.reply")(function* (
+    token: string,
+    workspaceId: string,
+    channelId: string,
+    threadTs: string,
+    text: string,
+    commandId: string,
+  ) {
+    const result = yield* request("chat.postMessage", token, workspaceId, {
+      channel: channelId,
+      thread_ts: threadTs,
+      text,
+      client_msg_id: commandId,
+      reply_broadcast: "false",
+      unfurl_links: "false",
+      unfurl_media: "false",
+      parse: "none",
+    }).pipe(Effect.flatMap(decodePostedMessage), Effect.mapError(apiError));
+    return {
+      url: `https://app.slack.com/client/${workspaceId}/${channelId}/thread/${channelId}-${threadTs}?message_ts=${result.ts}`,
+    };
+  });
   const revoke = (token: string, workspaceId: string) =>
     request("auth.revoke", token, workspaceId, {}).pipe(Effect.asVoid);
   return {
@@ -344,6 +368,7 @@ export const make = Effect.gen(function* () {
     selected,
     permalink,
     revoke,
+    reply,
   };
 });
 export type RawSlackMessage = typeof RawMessage.Type;

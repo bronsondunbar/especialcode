@@ -238,6 +238,18 @@ export const SETTINGS_SEARCH_ITEMS = [
     scope: "project-defaults",
   },
   {
+    id: "notification-inbox",
+    title: "Notification inbox",
+    to: "/settings/general",
+    searchTerms: ["saved alerts notification history unread"],
+  },
+  {
+    id: "notification-preferences",
+    title: "Notification preferences",
+    to: "/settings/general",
+    searchTerms: ["agent github slack alerts events delivery desktop inbox"],
+  },
+  {
     id: "thread-notifications",
     title: "Thread notifications",
     to: "/settings/general",

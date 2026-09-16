@@ -413,6 +413,7 @@ export async function restoreRejectedQueuedMessage(
       ...(queuedMessage.interactionMode ? { interactionMode: queuedMessage.interactionMode } : {}),
       ...(queuedMessage.creation
         ? {
+            vercel: queuedMessage.creation.vercel ?? null,
             workspaceSelection: {
               mode: queuedMessage.creation.workspaceMode,
               branch: queuedMessage.creation.branch,
@@ -930,6 +931,7 @@ export function useThreadOutboxDrain(): void {
       const deliveryResult = await startTurn({
         environmentId: queuedMessage.environmentId,
         input: buildProjectThreadStartTurnInput({
+          ...(creation.vercel ? { vercel: creation.vercel } : {}),
           projectId: creation.projectId,
           projectCwd,
           threadId: queuedMessage.threadId,

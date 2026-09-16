@@ -134,6 +134,7 @@ export const WorkItemMutation = Schema.Union([
 ]);
 export type WorkItemMutation = typeof WorkItemMutation.Type;
 export const WorkItemListInput = Schema.Struct({
+  agentThreadId: Schema.optionalKey(ThreadId),
   projectId: Schema.optionalKey(Schema.NullOr(ProjectId)),
   parentWorkItemId: Schema.optionalKey(Schema.NullOr(WorkItemId)),
   assignedAgent: Schema.optionalKey(Schema.NullOr(ProviderInstanceId)),

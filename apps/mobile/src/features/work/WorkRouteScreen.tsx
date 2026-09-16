@@ -1,3 +1,4 @@
+import { VercelSettingsPanel } from "../vercel/VercelSettingsPanel";
 import { ClearWorkQueueButton } from "./ClearWorkQueueButton";
 import { WorkTaskThreadButton } from "./WorkTaskThreadButton";
 import { WorkDashboardPanel } from "./WorkDashboardPanel";
@@ -121,6 +122,9 @@ export function WorkRouteScreen({ initialTab = "dashboard" }: { initialTab?: str
           {environment.serverConfig?.environment.capabilities.githubIssues && (
             <ControlPill label="GitHub" onPress={() => setTab("github")} />
           )}
+          {environment.serverConfig?.environment.capabilities.vercel && (
+            <ControlPill label="Vercel" onPress={() => setTab("vercel")} />
+          )}
         </View>
       )}
       {environment &&
@@ -157,6 +161,13 @@ export function WorkRouteScreen({ initialTab = "dashboard" }: { initialTab?: str
         tab === "github" &&
         environment.serverConfig?.environment.capabilities.githubIssues ? (
         <GitHubIssuesPanel
+          key={environment.environmentId}
+          environmentId={environment.environmentId}
+        />
+      ) : environment &&
+        tab === "vercel" &&
+        environment.serverConfig?.environment.capabilities.vercel ? (
+        <VercelSettingsPanel
           key={environment.environmentId}
           environmentId={environment.environmentId}
         />

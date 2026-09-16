@@ -474,6 +474,13 @@ describe("narrowing rows by the filters a host may not have applied", () => {
   const narrow = (filters: Parameters<typeof matchesPullRequestFilters>[1]) =>
     rows.filter((row) => matchesPullRequestFilters(row, filters)).map((row) => row.number);
 
+  it("filters by the full repository name, ignoring case", () => {
+    const row = entry({ number: 634, repository: "GDCh-de/website" });
+    expect(matchesPullRequestFilters(row, { repository: "gdch-DE/Website" })).toBe(true);
+    expect(matchesPullRequestFilters(row, { repository: "other/website" })).toBe(false);
+    expect(matchesPullRequestFilters(row, {})).toBe(true);
+  });
+
   it("keeps or drops drafts as asked", () => {
     expect(narrow({ draft: "only" })).toEqual([2]);
     expect(narrow({ draft: "hide" })).toEqual([1, 3, 4]);
@@ -1097,6 +1104,7 @@ describe("remembered pull request list controls", () => {
       review: "approved",
       checks: "passing",
       author: "octocat",
+      repo: "GDCh-de/website",
       labels: ["bug", "priority"],
       sort: "largest",
     } as const;

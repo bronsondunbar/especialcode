@@ -1,3 +1,4 @@
+import { VercelProjectField, type VercelSelection } from "../vercel/VercelProjectField";
 import {
   workTaskDiscussionSources,
   workTaskProjectId,
@@ -150,13 +151,16 @@ function TaskThreadForm({
   ).filter((provider) => provider.enabled && provider.models.length > 0);
   const [projectId, setProjectId] = useState(() => workTaskProjectId(task, projects));
   const project = projects.find((project) => project.id === projectId);
+  const [vercel, setVercel] = useState<{ projectId: string; selection: VercelSelection } | null>(
+    null,
+  );
   const [newBranch, setNewBranch] = useState(true);
   const [branchName, setBranchName] = useState(() => workTaskBranchName(task));
   const [baseSelection, setBaseSelection] = useState("");
   const branches = useEnvironmentQuery(
     atoms.branches({
       environmentId,
-      input: { cwd: newBranch ? (project?.workspaceRoot ?? null) : null },
+      input: { cwd: project?.workspaceRoot ?? null },
     }),
   );
   const baseBranch =
@@ -249,6 +253,10 @@ function TaskThreadForm({
         modelSelection: { instanceId: provider.instanceId, model: selectedModel.slug },
         createdAt: new Date().toISOString(),
         ...(prepared.current ? { worktree: prepared.current } : {}),
+        branch: branches.data?.find((ref) => ref.current)?.name ?? null,
+        ...(vercel?.projectId === projectId && vercel.selection
+          ? { vercel: vercel.selection }
+          : {}),
       };
       const response = await start({ environmentId, input: attempt.current });
       if (response._tag !== "Success") {
@@ -339,6 +347,16 @@ function TaskThreadForm({
             </Text>
           )}
         </>
+      )}
+      {project && (
+        <VercelProjectField
+          key={project.id}
+          environmentId={environmentId}
+          projectId={project.id}
+          value={vercel?.projectId === projectId ? vercel.selection : undefined}
+          onChange={(selection) => setVercel({ projectId, selection })}
+          disabled={pending || hasAttempt}
+        />
       )}
       <Choice
         title="Agent"

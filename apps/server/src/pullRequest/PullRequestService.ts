@@ -6,6 +6,7 @@ import {
 import * as Cache from "effect/Cache";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
+import * as NodeProcess from "node:process";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -19,6 +20,7 @@ import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import {
   PullRequestOperationError,
+  GITHUB_ACCOUNT_PROJECT_ID,
   PullRequestUnavailableError,
   pullRequestHostOf,
   pullRequestProviderRequirement,
@@ -38,7 +40,7 @@ import {
   type PullRequestInvalidateInput,
   type PullRequestListEntry,
   type PullRequestListFilters,
-  type PullRequestListInput,
+  PullRequestListInput,
   type PullRequestListProjectError,
   type PullRequestListResult,
   type PullRequestListStatsInput,
@@ -135,6 +137,16 @@ const STALE_DETAIL_WINDOW = Duration.minutes(10);
 const isPullRequestProviderError = Schema.is(PullRequestProviderError);
 const LIST_CACHE_CAPACITY = 64;
 const LIST_STATS_CACHE_CAPACITY = 32;
+const accountListKey = Schema.fromJsonString(
+  Schema.Struct({
+    input: PullRequestListInput,
+    fingerprint: Schema.String,
+    epoch: Schema.Int,
+  }),
+);
+const encodeAccountListKey = Schema.encodeSync(accountListKey);
+const decodeAccountListKey = Schema.decodeUnknownEffect(accountListKey);
+const accountProjectId = GITHUB_ACCOUNT_PROJECT_ID;
 const DETAIL_CACHE_CAPACITY = 128;
 const DIFF_CACHE_CAPACITY = 128;
 const VIEWER_CACHE_CAPACITY = 32;
@@ -278,7 +290,10 @@ const LABEL_CHANGE_REFUSAL = "You need triage access on this repository to chang
 /** A project this page can read: its remote is on a host with an implementation. */
 interface SupportedProject {
   readonly cursorKey: string;
-  readonly project: OrchestrationProjectShell;
+  readonly project: Pick<
+    OrchestrationProjectShell,
+    "id" | "title" | "workspaceRoot" | "repositoryIdentity"
+  >;
   readonly api: PullRequestProviderApi;
   readonly repository: string;
   /** The host the repository lives on, which is the account boundary rather than the kind. */
@@ -504,6 +519,14 @@ function withRateLimitBackoff(
       : {
           listChangeRequestsAcross: wrap("listChangeRequestsAcross", api.listChangeRequestsAcross),
         }),
+    ...(api.listAccountChangeRequests === undefined
+      ? {}
+      : {
+          listAccountChangeRequests: wrap(
+            "listAccountChangeRequests",
+            api.listAccountChangeRequests,
+          ),
+        }),
     ...(api.listChangeRequestStats === undefined
       ? {}
       : {
@@ -563,6 +586,24 @@ export const make = Effect.gen(function* () {
   const sourceControlProviders = yield* SourceControlProviderRegistry.SourceControlProviderRegistry;
   const rateLimits = yield* SourceControlRateLimit.SourceControlRateLimit;
   const readCache = yield* PullRequestReadCache.PullRequestReadCache;
+
+  // Remote-only PRs still need a route for detail/actions, but never create a local project.
+  const accountCursorKey = "github.com account";
+  const accountProject = (repository: string): SupportedProject | null => {
+    const api = registry.get("github");
+    if (api?.listAccountChangeRequests === undefined) return null;
+    return {
+      cursorKey: accountCursorKey,
+      project: {
+        id: accountProjectId,
+        title: repository || "GitHub",
+        workspaceRoot: NodeProcess.cwd(),
+      },
+      api: withRateLimitBackoff(api, "github.com", rateLimits),
+      repository,
+      host: "github.com",
+    };
+  };
 
   const refineUnknownProjectKinds = (
     projects: ReadonlyArray<OrchestrationProjectShell>,
@@ -734,8 +775,14 @@ export const make = Effect.gen(function* () {
    * targeting can fall back to another checkout on the host. Azure derives its organization
    * from the checkout, so it requires a matching repository.
    */
-  const requireProject = (ref: PullRequestRef): Effect.Effect<SupportedProject, PullRequestError> =>
-    listWorkspaceProjects({ projectId: ref.projectId }).pipe(
+  const requireProject = (
+    ref: PullRequestRef,
+  ): Effect.Effect<SupportedProject, PullRequestError> => {
+    if (ref.projectId === accountProjectId && ref.host?.toLowerCase() === "github.com") {
+      const account = accountProject(ref.repository.trim());
+      if (account !== null) return Effect.succeed(account);
+    }
+    return listWorkspaceProjects({ projectId: ref.projectId }).pipe(
       Effect.flatMap(({ supported }): Effect.Effect<SupportedProject, PullRequestError> => {
         const own = supported[0];
         const repository = ref.repository.trim();
@@ -793,6 +840,7 @@ export const make = Effect.gen(function* () {
         );
       }),
     );
+  };
 
   /**
    * What the signed-in account may do with this change request, asked of the host itself. Every
@@ -1009,6 +1057,59 @@ export const make = Effect.gen(function* () {
   const searchVisibilityKey = (host: string, repository: string) =>
     `${host}\n${repository.trim().toLowerCase()}`;
 
+  const listAccount = Effect.fn("PullRequestService.listAccount")(function* (
+    input: PullRequestListInput,
+    viewer: string,
+  ) {
+    const account = accountProject("")!;
+    const cursor = input.cursors?.[accountCursorKey];
+    if (input.cursors !== undefined && cursor === undefined) {
+      return yield* new PullRequestOperationError({
+        operation: "list",
+        detail: "Refresh the PRs feed to restart pagination.",
+      });
+    }
+    const page = yield* account.api.listAccountChangeRequests!({
+      cwd: account.project.workspaceRoot,
+      host: account.host,
+      viewer,
+      state: input.state,
+      involvement: input.involvement ?? "all",
+      limit: input.limit ?? DEFAULT_REPOSITORY_LIST_LIMIT,
+      query: input.query,
+      filters: input.filters,
+      cursor,
+    }).pipe(Effect.mapError(toPullRequestError("list")));
+    const { supported } = yield* listWorkspaceProjects({ host: "github.com" });
+    const byRepository = new Map(
+      supported.map((project) => [project.repository.toLowerCase(), project]),
+    );
+    return {
+      viewers: { "github.com": viewer },
+      providers: [
+        {
+          host: "github.com",
+          kind: "github" as const,
+          searchesOnHost: true,
+          projectCount: Math.max(1, supported.length),
+          configured: true,
+          detail: null,
+        },
+      ],
+      entries: page.items.map((item) =>
+        toEntry({
+          project:
+            byRepository.get(item.repository.toLowerCase()) ?? accountProject(item.repository)!,
+          item,
+          viewer,
+        }),
+      ),
+      errors: [],
+      truncated: page.nextCursor !== null,
+      nextCursors: page.nextCursor === null ? {} : { [accountCursorKey]: page.nextCursor },
+    } satisfies PullRequestListResult;
+  });
+
   const listUncached: PullRequestService["Service"]["list"] = (input) =>
     Effect.gen(function* () {
       const involvement = input.involvement ?? "all";
@@ -1017,10 +1118,15 @@ export const make = Effect.gen(function* () {
       // and reading part of the listing under that assumption would quietly lose rows.
       const continuation = yield* decodeCursors(input.cursors);
       const {
-        supported: projects,
+        supported: workspaceProjects,
         unimplemented,
         viewerRoots,
       } = yield* listWorkspaceProjects(input);
+      const repository = input.filters?.repository?.toLowerCase();
+      const projects =
+        repository === undefined
+          ? workspaceProjects
+          : workspaceProjects.filter((project) => project.repository.toLowerCase() === repository);
       const projectCounts = new Map<string, number>();
       for (const { host } of projects) {
         projectCounts.set(host, (projectCounts.get(host) ?? 0) + 1);
@@ -1355,7 +1461,9 @@ export const make = Effect.gen(function* () {
   )(function* (input) {
     const host = input.host.toLowerCase();
     const { supported } = yield* listWorkspaceProjects({ host });
-    const project = supported.find((candidate) => candidate.api.kind === "github");
+    const project =
+      (host === "github.com" ? accountProject("") : null) ??
+      supported.find((candidate) => candidate.api.kind === "github");
     const api = registry.get("github");
     if (project === undefined || api?.getRoutingIdentity === undefined) {
       return yield* new PullRequestUnavailableError({ reason: "provider-unsupported" });
@@ -2245,7 +2353,10 @@ export const make = Effect.gen(function* () {
         { readonly project: SupportedProject; readonly number: number }
       >();
       for (const ref of input.refs) {
-        const project = byProject.get(ref.projectId);
+        const project =
+          ref.projectId === accountProjectId
+            ? (accountProject(ref.repository.trim()) ?? undefined)
+            : byProject.get(ref.projectId);
         // The repository travels through the client, so it is checked against the project's own
         // remote rather than being handed to a provider verbatim.
         if (
@@ -2255,7 +2366,10 @@ export const make = Effect.gen(function* () {
         ) {
           continue;
         }
-        wanted.set(`${project.project.id} ${ref.number}`, { project, number: ref.number });
+        wanted.set(`${project.project.id} ${project.repository} ${ref.number}`, {
+          project,
+          number: ref.number,
+        });
       }
       const byHost = new Map<string, Array<{ project: SupportedProject; number: number }>>();
       for (const entry of wanted.values()) {
@@ -2478,12 +2592,13 @@ export const make = Effect.gen(function* () {
       string | ReadonlyArray<string> | ReadonlyArray<ReadonlyArray<string>> | null
     >,
   ): PullRequestListFilters => {
-    const [draft, review, checks, author, labels, excludedLabels] = slots;
+    const [draft, review, checks, author, labels, excludedLabels, repository] = slots;
     return {
       ...(typeof draft === "string" ? { draft: draft as "only" | "hide" } : {}),
       ...(typeof review === "string" ? { review: review as PullRequestListFilters["review"] } : {}),
       ...(typeof checks === "string" ? { checks: checks as PullRequestListFilters["checks"] } : {}),
       ...(typeof author === "string" ? { author } : {}),
+      ...(typeof repository === "string" ? { repository } : {}),
       ...(Array.isArray(labels) ? { labels: labels as ReadonlyArray<ReadonlyArray<string>> } : {}),
       ...(Array.isArray(excludedLabels) ? { excludedLabels } : {}),
     };
@@ -2602,7 +2717,61 @@ export const make = Effect.gen(function* () {
       timeToLive: (exit) => (Exit.isSuccess(exit) ? LIST_CACHE_TTL : Duration.zero),
     },
   );
+  const accountListCache = yield* Cache.makeWith(
+    (key: string) =>
+      decodeAccountListKey(key).pipe(
+        Effect.orDie,
+        Effect.flatMap(({ input, fingerprint }) => {
+          const account = accountProject("")!;
+          return account.api.withVerifiedCredential!(
+            { cwd: account.project.workspaceRoot, host: "github.com" },
+            (identity) =>
+              identity.credentialFingerprint === fingerprint
+                ? listAccount(input, identity.viewer)
+                : Effect.fail(
+                    new PullRequestOperationError({
+                      operation: "list",
+                      detail: "The GitHub account changed. Refresh the PRs feed.",
+                    }),
+                  ),
+          ).pipe(
+            Effect.catchTag("PullRequestProviderError", (error) =>
+              Effect.fail(toPullRequestError("list")(error)),
+            ),
+          );
+        }),
+      ),
+    {
+      capacity: LIST_CACHE_CAPACITY,
+      timeToLive: (exit) => (Exit.isSuccess(exit) ? LIST_CACHE_TTL : Duration.zero),
+    },
+  );
   const list: PullRequestService["Service"]["list"] = (input) => {
+    const account = accountProject("");
+    if (
+      input.projectId === undefined &&
+      (input.host === undefined || input.host.toLowerCase() === "github.com") &&
+      account?.api.withVerifiedCredential !== undefined
+    ) {
+      return account.api
+        .withVerifiedCredential(
+          { cwd: account.project.workspaceRoot, host: "github.com" },
+          (identity) =>
+            Cache.get(
+              accountListCache,
+              encodeAccountListKey({
+                input,
+                fingerprint: identity.credentialFingerprint,
+                epoch: listingsEpoch,
+              }),
+            ),
+        )
+        .pipe(
+          Effect.catchTag("PullRequestProviderError", (error) =>
+            Effect.fail(toPullRequestError("list")(error)),
+          ),
+        );
+    }
     const key = JSON.stringify([
       listingsEpoch,
       input.state,
@@ -2617,6 +2786,7 @@ export const make = Effect.gen(function* () {
             input.filters.author ?? null,
             input.filters.labels ?? null,
             input.filters.excludedLabels ?? null,
+            input.filters.repository ?? null,
           ],
       input.projectId ?? null,
       // Sorted so the same narrowing keys alike however the caller ordered it.

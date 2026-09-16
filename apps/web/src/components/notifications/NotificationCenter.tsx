@@ -1,4 +1,3 @@
-import { NotificationPreferencesPanel } from "./NotificationPreferencesPanel";
 import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { notificationActionLabel } from "@t3tools/client-runtime/state/work-items";
@@ -67,9 +66,6 @@ export function NotificationCenter({
   const data = query.data;
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 p-4 sm:p-6">
-      {capabilities?.notificationPreferences && (
-        <NotificationPreferencesPanel environmentId={environmentId} />
-      )}
       <p className="text-sm text-muted-foreground">
         Notifications and read state are shared across this environment.
       </p>

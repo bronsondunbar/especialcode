@@ -235,6 +235,8 @@ export const make = Effect.gen(function* () {
       threadPullRequests: true,
       workItems: true,
       workItemsDelete: true,
+      workTaskUpdates: true,
+      vercel: true,
       workPlans: true,
       workExecutions: true,
       workPullRequests: true,

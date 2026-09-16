@@ -12,11 +12,20 @@ import { describe, expect, it } from "@effect/vitest";
 import { RPC_REQUIRED_SCOPES, requiredScopeForRpcMethod } from "./RpcAuthorization.ts";
 
 describe("RPC authorization scopes", () => {
+  it("separates Vercel deployment reads, thread linking and administrator credentials", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.vercelRead)).toBe(AuthOrchestrationReadScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.vercelProjects)).toBe(AuthOrchestrationReadScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.vercelLink)).toBe(AuthOrchestrationOperateScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.vercelAdmin)).toBe(AuthAccessWriteScope);
+  });
   it("declares exactly one scope for every RPC in the server group", () => {
     expect(new Set(Object.keys(RPC_REQUIRED_SCOPES))).toEqual(new Set(WsRpcGroup.requests.keys()));
   });
 
   it("separates Slack inbox access, task operations and administrator-owned credentials", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.workTaskUpdate)).toBe(
+      AuthOrchestrationOperateScope,
+    );
     expect(requiredScopeForRpcMethod(WS_METHODS.githubAccount)).toBe(AuthAccessWriteScope);
     expect(requiredScopeForRpcMethod(WS_METHODS.slackAdmin)).toBe(AuthAccessWriteScope);
     expect(requiredScopeForRpcMethod(WS_METHODS.slackMutate)).toBe(AuthOrchestrationOperateScope);

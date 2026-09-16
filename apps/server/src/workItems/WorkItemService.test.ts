@@ -351,6 +351,8 @@ it.effect(
         },
       });
       assert.equal(assigned.agentThreadId, "thread");
+      assert.equal((yield* service.list({ agentThreadId: ThreadId.make("thread") })).total, 1);
+      assert.equal((yield* service.list({ agentThreadId: ThreadId.make("other") })).total, 0);
       assert.equal(
         (yield* service.list({ assignedAgent: ProviderInstanceId.make("codex") })).total,
         1,
@@ -363,6 +365,7 @@ it.effect(
         patch: { agentThreadId: null, assignedAgent: null },
       });
       assert.equal((yield* service.get(item.id)).agentThreadId, null);
+      assert.equal((yield* service.list({ agentThreadId: ThreadId.make("thread") })).total, 0);
       yield* sql`UPDATE projection_projects SET deleted_at='2026-02-01' WHERE project_id='owned'`;
       const changed = yield* service.mutate({
         kind: "update",

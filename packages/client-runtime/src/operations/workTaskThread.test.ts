@@ -13,6 +13,8 @@ import {
   type WorkItemMutation,
   type VcsCreateWorktreeInput,
   type VcsListRefsInput,
+  type VercelLinkInput,
+  VercelError,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -79,6 +81,7 @@ const setup = Effect.fn("TestWorkTaskThread.setup")(function* (
     failCreate?: boolean;
     failLink?: boolean;
     failBranch?: boolean;
+    failVercel?: boolean;
     input?: WorkTaskThreadInput;
   } = {},
 ) {
@@ -87,7 +90,13 @@ const setup = Effect.fn("TestWorkTaskThread.setup")(function* (
   const mutations: WorkItemMutation[] = [];
   const worktrees: VcsCreateWorktreeInput[] = [];
   const refQueries: VcsListRefsInput[] = [];
+  const vercelLinks: VercelLinkInput[] = [];
   const client = {
+    [WS_METHODS.vercelLink]: (input: VercelLinkInput) =>
+      Effect.gen(function* () {
+        vercelLinks.push(input);
+        if (options.failVercel) return yield* new VercelError({ message: "Vercel unavailable" });
+      }),
     [WS_METHODS.vcsListRefs]: (query: VcsListRefsInput) =>
       Effect.sync(() => {
         refQueries.push(query);
@@ -155,6 +164,7 @@ const setup = Effect.fn("TestWorkTaskThread.setup")(function* (
   });
   return {
     commands,
+    vercelLinks,
     mutations,
     worktrees,
     refQueries,
@@ -351,3 +361,43 @@ describe("new thread from task", () => {
     expect(shortened).toContain(task.resources[0]!.url);
   });
 });
+
+it.effect("links the chosen Vercel project to the created thread and follows its branch", () =>
+  Effect.gen(function* () {
+    const harness = yield* setup({
+      input: { ...input, vercel: { project: "prj_app" }, branch: "main" },
+    });
+    expect((yield* harness.run).warning).toBeNull();
+    expect(harness.vercelLinks).toEqual([
+      {
+        kind: "link",
+        projectId: input.projectId,
+        threadId: input.threadId,
+        vercelProject: "prj_app",
+        branch: null,
+      },
+    ]);
+    expect(harness.commands[0]).toMatchObject({ branch: "main" });
+  }),
+);
+it.effect("reports Vercel linking failure without losing the thread or creating it twice", () =>
+  Effect.gen(function* () {
+    const harness = yield* setup({
+      failVercel: true,
+      input: { ...input, vercel: { project: "prj_app" } },
+    });
+    expect((yield* harness.run).warning).toContain("Vercel could not be linked");
+    expect((yield* harness.run).threadId).toBe(input.threadId);
+    expect(harness.commands).toHaveLength(1);
+    expect(harness.mutations).toHaveLength(1);
+  }),
+);
+it.effect("allows opting out of the inherited Vercel connection", () =>
+  Effect.gen(function* () {
+    const harness = yield* setup({ input: { ...input, vercel: { project: null } } });
+    yield* harness.run;
+    expect(harness.vercelLinks).toEqual([
+      { kind: "unlink", projectId: input.projectId, threadId: input.threadId },
+    ]);
+  }),
+);

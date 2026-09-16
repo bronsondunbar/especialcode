@@ -1,4 +1,5 @@
-import { NotificationBells } from "../notifications/NotificationBells";
+import { SidebarNotificationsItem } from "../notifications/SidebarNotificationsItem";
+import { WorkspaceUpdatesIndicator } from "./WorkspaceUpdatesIndicator";
 import {
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
@@ -53,33 +54,124 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
       : null;
 
   return (
-    <SidebarHeader
-      className={cn(
-        "@container/sidebar-header relative h-[var(--workspace-topbar-height)] shrink-0 flex-row items-center px-3 py-0 md:px-0",
-        isElectron && "drag-region",
-      )}
-    >
-      {backdropVariant ? <SidebarStageBackdrop variant={backdropVariant} /> : null}
-      <SidebarTrigger
+    <>
+      <SidebarHeader
         className={cn(
-          "relative z-10 md:hidden",
-          backdropVariant &&
-            "focus-visible:ring-white/90 [&_svg]:stroke-white/90! [&_svg]:opacity-100! [&_svg]:hover:stroke-white! [:hover,[data-pressed]]:bg-white/15",
-          backdropVariant && resolveSidebarStageFocusRingOffsetClass(backdropVariant),
+          "@container/sidebar-header relative h-[var(--workspace-topbar-height)] shrink-0 flex-row items-center px-3 py-0 md:px-0",
+          isElectron && "drag-region",
         )}
-      />
-      <SidebarBrand onBackdrop={backdropVariant !== null} />
-      {pillLabel ? (
-        <Badge
-          className="relative z-10 ml-1 hidden rounded-full px-1.5 text-muted-foreground @[15rem]/sidebar-header:inline-flex"
-          data-environment-identification="pill"
-          size="sm"
-          variant="secondary"
-        >
-          {pillLabel}
-        </Badge>
-      ) : null}
-    </SidebarHeader>
+      >
+        {backdropVariant ? <SidebarStageBackdrop variant={backdropVariant} /> : null}
+        <SidebarTrigger
+          className={cn(
+            "relative z-10 md:hidden",
+            backdropVariant &&
+              "focus-visible:ring-white/90 [&_svg]:stroke-white/90! [&_svg]:opacity-100! [&_svg]:hover:stroke-white! [:hover,[data-pressed]]:bg-white/15",
+            backdropVariant && resolveSidebarStageFocusRingOffsetClass(backdropVariant),
+          )}
+        />
+        <SidebarBrand onBackdrop={backdropVariant !== null} />
+        {pillLabel ? (
+          <Badge
+            className="relative z-10 ml-1 hidden rounded-full px-1.5 text-muted-foreground @[15rem]/sidebar-header:inline-flex"
+            data-environment-identification="pill"
+            size="sm"
+            variant="secondary"
+          >
+            {pillLabel}
+          </Badge>
+        ) : null}
+      </SidebarHeader>
+      <SidebarWorkspaceNavigation />
+    </>
+  );
+});
+
+const SidebarWorkspaceNavigation = memo(function SidebarWorkspaceNavigation() {
+  const navigate = useNavigate();
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const { isMobile, setOpenMobile } = useSidebar();
+  const { environments } = useEnvironments();
+  const workSupported = environments.some(
+    (environment) => environment.serverConfig?.environment.capabilities.workItems === true,
+  );
+  const pullRequestsSupported = environments.some(
+    (environment) => environment.serverConfig?.environment.capabilities.pullRequests === true,
+  );
+  const notificationsSupported = environments.some(
+    (environment) => environment.serverConfig?.environment.capabilities.notifications === true,
+  );
+  const closeMobileSidebar = () => {
+    if (isMobile) setOpenMobile(false);
+  };
+  if (!workSupported && !pullRequestsSupported && !notificationsSupported) return null;
+
+  return (
+    <nav
+      aria-label="Workspace"
+      className="relative z-[1] shrink-0 px-[var(--sidebar-content-inset)] py-2"
+    >
+      <SidebarMenu>
+        {workSupported && (
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              isActive={pathname === "/work"}
+              aria-current={pathname === "/work" ? "page" : undefined}
+              onClick={() => {
+                closeMobileSidebar();
+                void navigate({ to: "/work", search: { tab: "dashboard" } });
+              }}
+            >
+              <ClipboardListIcon />
+              <span>Work</span>
+              <WorkspaceUpdatesIndicator
+                section="work"
+                active={pathname === "/work"}
+                environmentIds={environments
+                  .filter(
+                    (environment) =>
+                      environment.connection.phase === "connected" &&
+                      environment.serverConfig?.environment.capabilities.workItems === true,
+                  )
+                  .map((environment) => environment.environmentId)}
+              />
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        )}
+        {pullRequestsSupported && (
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              isActive={pathname === "/pull-requests"}
+              aria-current={pathname === "/pull-requests" ? "page" : undefined}
+              onClick={() => {
+                closeMobileSidebar();
+                void navigate({ to: "/pull-requests", search: readPullRequestListPreferences() });
+              }}
+            >
+              <GitPullRequestIcon />
+              <span>PRs</span>
+              <WorkspaceUpdatesIndicator
+                section="prs"
+                active={pathname === "/pull-requests"}
+                environmentIds={environments
+                  .filter(
+                    (environment) =>
+                      environment.connection.phase === "connected" &&
+                      environment.serverConfig?.environment.capabilities.pullRequests === true,
+                  )
+                  .map((environment) => environment.environmentId)}
+              />
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        )}
+        {notificationsSupported && (
+          <SidebarNotificationsItem
+            active={pathname === "/notifications"}
+            onOpen={closeMobileSidebar}
+          />
+        )}
+      </SidebarMenu>
+    </nav>
   );
 });
 
@@ -153,24 +245,11 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
                   ? "pull-requests"
                   : null,
   });
-  const { environments } = useEnvironments();
-  // The page reads every connected server, so one of them offering pull requests is enough for
-  // the link to lead somewhere.
-  const pullRequestsSupported = environments.some(
-    (environment) => environment.serverConfig?.environment.capabilities.pullRequests === true,
-  );
   const closeMobileSidebar = useCallback(() => {
     if (isMobile) {
       setOpenMobile(false);
     }
   }, [isMobile, setOpenMobile]);
-  const handlePullRequestsClick = useCallback(() => {
-    closeMobileSidebar();
-    void navigate({
-      to: "/pull-requests",
-      search: readPullRequestListPreferences(),
-    });
-  }, [closeMobileSidebar, navigate]);
   const handleSettingsClick = useCallback(() => {
     closeMobileSidebar();
     void navigate({ to: "/settings" });
@@ -203,30 +282,11 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
         </SidebarMenuItem>
       ) : (
         <>
-          {environments.some(
-            (environment) => environment.serverConfig?.environment.capabilities.workItems === true,
-          ) && (
-            <SidebarUtilityItem
-              icon={<ClipboardListIcon />}
-              label="Work"
-              onClick={() => {
-                closeMobileSidebar();
-                void navigate({ to: "/work", search: { tab: "dashboard" } });
-              }}
-            />
-          )}
           <SidebarUtilityItem
             icon={<SettingsIcon />}
             label="Settings"
             onClick={handleSettingsClick}
           />
-          {pullRequestsSupported ? (
-            <SidebarUtilityItem
-              icon={<GitPullRequestIcon />}
-              label="Pull Requests"
-              onClick={handlePullRequestsClick}
-            />
-          ) : null}
           <SidebarUtilityItem
             icon={<ChartNoAxesColumnIcon />}
             label="Usage"
@@ -234,7 +294,6 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
           />
         </>
       )}
-      <NotificationBells />
       <SidebarUpdatePill />
     </SidebarMenu>
   );

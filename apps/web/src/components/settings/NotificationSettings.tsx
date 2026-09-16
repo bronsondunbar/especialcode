@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
+import type { EnvironmentId } from "@t3tools/contracts";
 
 import {
   hasDesktopNotifications,
@@ -8,6 +9,10 @@ import {
   unlockNotificationAudio,
 } from "../../threadNotifications";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Button } from "../ui/button";
+import { Dialog, DialogPopup, DialogTitle } from "../ui/dialog";
+import { NotificationPreferencesPanel } from "./NotificationPreferencesPanel";
+import { useSettingsScope } from "./SettingsScopeContext";
 import { SettingsRow } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
@@ -20,12 +25,16 @@ export function NotificationSettings() {
 
   return (
     <>
-      <Link to="/work" search={{ tab: "automations" }} className="text-sm text-primary underline">
-        Automation settings
-      </Link>
-      <Link to="/notifications" className="text-sm text-primary underline">
-        Open notification inbox and preferences
-      </Link>
+      <SettingsRow
+        {...searchableSetting("notification-inbox")}
+        description="View saved alerts and manage which notifications are read."
+        control={
+          <Button variant="outline" size="sm" render={<Link to="/notifications" />}>
+            Open inbox
+          </Button>
+        }
+      />
+      <NotificationPreferencesSetting />
       <SettingsRow
         {...searchableSetting("thread-notifications")}
         description={
@@ -46,7 +55,7 @@ export function NotificationSettings() {
                 return;
               setPermissionMessage(null);
               if (hasNotificationSound(value)) unlockNotificationAudio();
-              if (hasDesktopNotifications(value)) {
+              if (hasDesktopNotifications(value) && !window.desktopBridge?.showAppNotification) {
                 if (typeof Notification === "undefined" || !window.isSecureContext) {
                   setPermissionMessage(
                     "Notifications need a supported browser over HTTPS, or the desktop app. Sound only is still available.",
@@ -87,6 +96,69 @@ export function NotificationSettings() {
           </Select>
         }
       />
+    </>
+  );
+}
+
+function NotificationPreferencesSetting() {
+  const { environment, connectedEnvironments } = useSettingsScope();
+  const supported = connectedEnvironments.filter(
+    (entry) => entry.serverConfig?.environment.capabilities.notificationPreferences === true,
+  );
+  const [open, setOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState<EnvironmentId | null>(null);
+  const selected =
+    supported.find((entry) => entry.environmentId === selectedId) ??
+    supported.find((entry) => entry.environmentId === environment?.environmentId) ??
+    supported[0];
+  return (
+    <>
+      <SettingsRow
+        {...searchableSetting("notification-preferences")}
+        description={
+          selected
+            ? "Choose agent, GitHub, and Slack alerts and how this server delivers them."
+            : "Connect to a server with notification preferences to manage alerts."
+        }
+        control={
+          <Button variant="outline" size="sm" disabled={!selected} onClick={() => setOpen(true)}>
+            Manage preferences
+          </Button>
+        }
+      />
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogPopup className="max-w-2xl">
+          <DialogTitle>Notification preferences</DialogTitle>
+          {supported.length > 1 && selected ? (
+            <div className="mt-4">
+              <Select
+                value={selected.environmentId}
+                onValueChange={(value) => {
+                  const next = supported.find((entry) => entry.environmentId === value);
+                  if (next) setSelectedId(next.environmentId);
+                }}
+              >
+                <SelectTrigger aria-label="Notification server">
+                  <SelectValue>{selected.label}</SelectValue>
+                </SelectTrigger>
+                <SelectPopup>
+                  {supported.map((entry) => (
+                    <SelectItem key={entry.environmentId} value={entry.environmentId}>
+                      {entry.label}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            </div>
+          ) : null}
+          {open && selected ? (
+            <NotificationPreferencesPanel
+              key={selected.environmentId}
+              environmentId={selected.environmentId}
+            />
+          ) : null}
+        </DialogPopup>
+      </Dialog>
     </>
   );
 }

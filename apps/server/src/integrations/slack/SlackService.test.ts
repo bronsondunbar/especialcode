@@ -51,6 +51,7 @@ const setup = Effect.gen(function* () {
     getOrCreateRandom: () => Effect.die("unused"),
   });
   const state = {
+    replies: [] as Array<{ threadTs: string; body: string }>,
     workspaceId: "T123",
     failWorkspace: null as string | null,
     exchanges: 0,
@@ -66,6 +67,11 @@ const setup = Effect.gen(function* () {
     ] as Array<RawSlackMessage & { channel: { id: string } }>,
   };
   const adapter = SlackAdapter.of({
+    reply: (_token, _workspace, _channel, threadTs, body) =>
+      Effect.sync(() => {
+        state.replies.push({ threadTs, body });
+        return { url: "https://example.slack.com/archives/C123/p1760000000000002" };
+      }),
     oauth: () =>
       Effect.sync(() => {
         state.exchanges++;
@@ -76,7 +82,8 @@ const setup = Effect.gen(function* () {
             access_token: "private-access-token",
             refresh_token: "private-refresh-token",
             expires_in: state.expires ? 1 : 3600,
-            scope: "search:read,channels:read,groups:read,channels:history,groups:history",
+            scope:
+              "chat:write,search:read,channels:read,groups:read,channels:history,groups:history",
           },
         };
       }),
@@ -161,7 +168,7 @@ it.effect(
       const token = url.searchParams.get("state")!;
       assert.strictEqual(url.origin, "https://slack.com");
       assert.strictEqual(url.searchParams.get("scope"), null);
-      assert.strictEqual(url.searchParams.get("user_scope")?.includes("chat:write"), false);
+      assert.strictEqual(url.searchParams.get("user_scope")?.includes("chat:write"), true);
       assert.strictEqual(
         (yield* service.completeOAuth("forged", "code").pipe(Effect.flip)).code,
         "authentication",
@@ -600,4 +607,30 @@ it.effect("continues automatic imports in other workspaces when one loses access
       "ready",
     );
   }).pipe(Effect.scoped, Effect.provide(SqlitePersistenceMemory)),
+);
+
+it.effect("prepares a reply to the original parent when a task came from a Slack reply", () =>
+  Effect.gen(function* () {
+    const { service, state } = yield* setup;
+    yield* service.mutate({ kind: "select", ...reference });
+    const send = yield* service.prepareReply(reference);
+    assert.deepEqual(state.replies, []);
+    yield* send("Reviewed fix summary", "post-reply");
+    assert.deepEqual(state.replies, [
+      { threadTs: "1760000000.000000", body: "Reviewed fix summary" },
+    ]);
+  }).pipe(Effect.provide(SqlitePersistenceMemory)),
+);
+
+it.effect("asks older read-only Slack connections to reconnect before posting", () =>
+  Effect.gen(function* () {
+    const { service, state } = yield* setup;
+    const sql = yield* SqlClient.SqlClient;
+    yield* service.mutate({ kind: "select", ...reference });
+    yield* sql`UPDATE slack_workspaces SET record_json=json_set(record_json, '$.scopes', json('["search:read"]')) WHERE id='T123'`;
+    const error = yield* service.prepareReply(reference).pipe(Effect.flip);
+    assert.strictEqual(error.code, "authentication");
+    assert.include(error.message, "chat:write");
+    assert.deepEqual(state.replies, []);
+  }).pipe(Effect.provide(SqlitePersistenceMemory)),
 );

@@ -1,67 +1,12 @@
 import {
-  GitHubIssueReference,
-  SlackReference,
+  workTaskDiscussionSources,
+  type WorkTaskDiscussionSource,
   WS_METHODS,
   WorkItemError,
   type WorkItem,
-  type WorkItemExternalResource,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import * as Schema from "effect/Schema";
 import { request } from "../rpc/client.ts";
-const isGitHubReference = Schema.is(GitHubIssueReference);
-const isSlackReference = Schema.is(SlackReference);
-export type WorkTaskDiscussionSource =
-  | { kind: "github"; key: string; label: string; url: string; reference: GitHubIssueReference }
-  | { kind: "slack"; key: string; label: string; url: string; reference: SlackReference };
-function sourceFor(resource: WorkItemExternalResource): WorkTaskDiscussionSource | null {
-  if (resource.source === "github_issue") {
-    try {
-      const url = new URL(resource.url);
-      const match = /^\/([^/]+\/[^/]+)\/issues\/(\d+)\/?$/.exec(url.pathname);
-      if (
-        !match ||
-        url.protocol !== "https:" ||
-        `${url.host}/${match[1]}`.toLowerCase() !== resource.namespace.toLowerCase()
-      )
-        return null;
-      const reference = { host: url.hostname, repository: match[1]!, number: Number(match[2]) };
-      if (!isGitHubReference(reference)) return null;
-      return {
-        kind: "github",
-        key: `github:${resource.namespace}:${resource.externalId}`,
-        label: `GitHub comments · ${reference.repository} #${reference.number}`,
-        url: resource.url,
-        reference,
-      };
-    } catch {
-      return null;
-    }
-  }
-  if (resource.source === "slack") {
-    const [workspaceId, channelId, extra] = resource.namespace.split("/");
-    const reference = { workspaceId, channelId, ts: resource.externalId };
-    if (extra !== undefined || !isSlackReference(reference)) return null;
-    return {
-      kind: "slack",
-      key: `slack:${resource.namespace}:${resource.externalId}`,
-      label: `Slack thread · ${channelId}`,
-      url: resource.url,
-      reference,
-    };
-  }
-  return null;
-}
-export function workTaskDiscussionSources(task: WorkItem): WorkTaskDiscussionSource[] {
-  return [
-    ...new Map(
-      task.resources.flatMap((resource) => {
-        const source = sourceFor(resource);
-        return source ? [[source.key, source] as const] : [];
-      }),
-    ).values(),
-  ];
-}
 export interface WorkTaskDiscussion {
   readonly source: WorkTaskDiscussionSource;
   readonly text: string;
@@ -142,3 +87,5 @@ export function workTaskPromptWithDiscussion(
 ): string {
   return [prompt, ...contexts.map((context) => context.text)].join("\n\n");
 }
+
+export { workTaskDiscussionSources, type WorkTaskDiscussionSource } from "@t3tools/contracts";

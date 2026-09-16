@@ -175,7 +175,7 @@ describe("pull request search decoding", () => {
     const batch = expectSuccess(decodePullRequestSearchJson(JSON.stringify(raw)));
     expect(batch.items[0]?.stack).toEqual({ number: 3, size: 2, position: 1, base: "main" });
     expect(batch.items[1]?.stack).toBeUndefined();
-    expect(pullRequestSearchGraphQlQuery(20, true)).toContain("stackEntry");
+    expect(pullRequestSearchGraphQlQuery(20, { includeStacks: true })).toContain("stackEntry");
     expect(pullRequestSearchGraphQlQuery(20)).not.toContain("stackEntry");
   });
 
@@ -837,6 +837,29 @@ describe("repository access decoding", () => {
 describe("viewer permission decoding", () => {
   const viewerJson = (repository: Record<string, unknown>) =>
     JSON.stringify({ data: { repository } });
+
+  it("reads individual review requests without needing team details", () => {
+    const access = expectSuccess(
+      decodeViewerPermissionsJson(
+        viewerJson({
+          viewerPermission: "READ",
+          pullRequest: {
+            viewerCanUpdate: false,
+            viewerDidAuthor: false,
+            reviewRequests: {
+              nodes: [
+                { requestedReviewer: { login: "octocat" } },
+                { requestedReviewer: {} },
+                { requestedReviewer: null },
+              ],
+            },
+          },
+        }),
+      ),
+    );
+    expect(access.reviewRequestLogins).toEqual(["octocat"]);
+    expect(access.canWrite).toBe(false);
+  });
 
   it("reads the repository's role and the pull request's own viewer fields together", () => {
     expect(

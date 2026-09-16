@@ -178,7 +178,7 @@ it.effect("classifies HTTP authentication failures without exposing the response
     }
   }),
 );
-it.effect("retries a read transport failure once but never retries OAuth rotation", () =>
+it.effect("retries read transport failures but never retries rotation or message posting", () =>
   Effect.gen(function* () {
     let attempts = 0;
     const http = HttpClient.make((request) =>
@@ -200,6 +200,10 @@ it.effect("retries a read transport failure once but never retries OAuth rotatio
     assert.strictEqual(attempts, 2);
     yield* adapter.refresh("id", "secret", "refresh").pipe(Effect.flip);
     assert.strictEqual(attempts, 3);
+    yield* adapter
+      .reply("token", "T123", "C123", "1760000000.000000", "Reviewed update", "post")
+      .pipe(Effect.flip);
+    assert.strictEqual(attempts, 4);
   }),
 );
 
@@ -274,5 +278,29 @@ it.effect("does not return partial mentions when a later page fails or repeats",
       (yield* slack.mentions("token", "T123", "U123", null).pipe(Effect.flip)).code,
       "remote",
     );
+  }),
+);
+
+it.effect("posts reviewed text as a reply without broadcasting or unfurling", () =>
+  Effect.gen(function* () {
+    const { requests, adapter } = harness(() =>
+      Response.json({ ok: true, ts: "1760000000.000002" }),
+    );
+    const slack = yield* adapter;
+    yield* slack.reply(
+      "private-token",
+      "T123",
+      "C123",
+      "1760000000.000000",
+      "Reviewed update",
+      "request-id",
+    );
+    assert.strictEqual(requests.length, 1);
+    assert.isTrue(requests[0]!.url.endsWith("chat.postMessage"));
+    const params = form(requests[0]!);
+    assert.strictEqual(params.get("thread_ts"), "1760000000.000000");
+    assert.strictEqual(params.get("text"), "Reviewed update");
+    assert.strictEqual(params.get("reply_broadcast"), "false");
+    assert.strictEqual(params.get("unfurl_links"), "false");
   }),
 );

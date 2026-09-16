@@ -1,3 +1,8 @@
+import * as Schema from "effect/Schema";
+import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
+import { githubAccountSecretName } from "../auth/githubAccountSecret.ts";
+import { VcsProcess } from "../vcs/VcsProcess.ts";
+import { parseGitHubRepositoryNameWithOwnerFromRemoteUrl } from "@t3tools/shared/git";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -13,6 +18,8 @@ import { findAuthenticatedGitHubAccount, parseGitHubAuthStatus } from "./gitHubA
 import { decodeGitHubPullRequestListJson } from "./gitHubPullRequests.ts";
 import * as SourceControlProvider from "./SourceControlProvider.ts";
 import {
+  probeSourceControlProvider,
+  type SourceControlProviderDiscoverySpec,
   combinedAuthOutput,
   firstSafeAuthLine,
   providerAuth,
@@ -110,6 +117,11 @@ export const discovery = {
     "Install the GitHub command-line tool (`gh`) via https://cli.github.com/ or your package manager (for example `brew install gh`).",
 } satisfies SourceControlCliDiscoverySpec;
 
+function repositoryScope(context: SourceControlProvider.SourceControlProviderContext | undefined) {
+  const repository = parseGitHubRepositoryNameWithOwnerFromRemoteUrl(context?.remoteUrl ?? null);
+  return repository ? { repository: `github.com/${repository}` } : {};
+}
+
 export const make = Effect.gen(function* () {
   const github = yield* GitHubCli.GitHubCli;
 
@@ -119,6 +131,7 @@ export const make = Effect.gen(function* () {
         return github
           .listOpenPullRequests({
             cwd: input.cwd,
+            ...repositoryScope(input.context),
             headSelector: input.headSelector,
             ...(input.limit !== undefined ? { limit: input.limit } : {}),
           })
@@ -148,6 +161,9 @@ export const make = Effect.gen(function* () {
           args: [
             "pr",
             "list",
+            ...(repositoryScope(input.context).repository
+              ? ["--repo", repositoryScope(input.context).repository!]
+              : []),
             "--head",
             input.headSelector,
             "--state",
@@ -212,7 +228,7 @@ export const make = Effect.gen(function* () {
     kind: "github",
     listChangeRequests,
     getChangeRequest: (input) =>
-      github.getPullRequest(input).pipe(
+      github.getPullRequest({ ...input, ...repositoryScope(input.context) }).pipe(
         Effect.map(toChangeRequest),
         Effect.mapError(
           (error) =>
@@ -233,6 +249,7 @@ export const make = Effect.gen(function* () {
       github
         .createPullRequest({
           cwd: input.cwd,
+          ...repositoryScope(input.context),
           baseBranch: input.baseRefName,
           headSelector: input.headSelector,
           title: input.title,
@@ -289,7 +306,7 @@ export const make = Effect.gen(function* () {
         ),
       ),
     getDefaultBranch: (input) =>
-      github.getDefaultBranch(input).pipe(
+      github.getDefaultBranch({ ...input, ...repositoryScope(input.context) }).pipe(
         Effect.mapError(
           (error) =>
             new SourceControlProviderError({
@@ -303,7 +320,7 @@ export const make = Effect.gen(function* () {
         ),
       ),
     checkoutChangeRequest: (input) =>
-      github.checkoutPullRequest(input).pipe(
+      github.checkoutPullRequest({ ...input, ...repositoryScope(input.context) }).pipe(
         Effect.mapError(
           (error) =>
             new SourceControlProviderError({
@@ -320,4 +337,51 @@ export const make = Effect.gen(function* () {
         ),
       ),
   });
+});
+
+const decodeConnectedViewer = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(Schema.Struct({ login: Schema.String })),
+);
+
+export const makeDiscovery = Effect.gen(function* () {
+  const secrets = yield* Effect.serviceOption(ServerSecretStore);
+  const process = yield* VcsProcess;
+  const github = yield* GitHubCli.GitHubCli;
+  if (Option.isNone(secrets)) return discovery;
+  const store = secrets.value;
+  return {
+    ...discovery,
+    type: "managed-cli",
+    refineUnknownRemote: () => Effect.succeed(null),
+    probe: Effect.fn("GitHubSourceControlProvider.probe")(function* (cwd: string) {
+      const item = yield* probeSourceControlProvider({ spec: discovery, process, cwd });
+      if (item.status !== "available") return item;
+      const connected = yield* Effect.gen(function* () {
+        const token = yield* store.get(githubAccountSecretName);
+        if (Option.isNone(token))
+          return providerAuth({
+            status: "unauthenticated",
+            host: "github.com",
+            detail: "Connect your account in Work → GitHub.",
+          });
+        const output = yield* github.execute({
+          cwd,
+          args: ["api", "user", "--hostname", "github.com"],
+        });
+        const viewer = yield* decodeConnectedViewer(output.stdout);
+        return providerAuth({ status: "authenticated", host: "github.com", account: viewer.login });
+      }).pipe(
+        Effect.catch(() =>
+          Effect.succeed(
+            providerAuth({
+              status: "unauthenticated",
+              host: "github.com",
+              detail: "Reconnect your account in Work → GitHub.",
+            }),
+          ),
+        ),
+      );
+      return { ...item, auth: connected };
+    }),
+  } satisfies SourceControlProviderDiscoverySpec;
 });

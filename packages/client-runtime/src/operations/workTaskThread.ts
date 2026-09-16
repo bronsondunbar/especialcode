@@ -139,13 +139,33 @@ export interface WorkTaskThreadInput {
   readonly modelSelection: ModelSelection;
   readonly createdAt: string;
   readonly worktree?: { readonly path: string; readonly refName: string };
+  readonly branch?: string | null;
+  readonly vercel?: { readonly project: string | null };
 }
+const linkVercel = Effect.fn("WorkTaskThread.linkVercel")(function* (input: WorkTaskThreadInput) {
+  if (!input.vercel) return null;
+  const result = yield* request(WS_METHODS.vercelLink, {
+    projectId: input.projectId,
+    threadId: input.threadId,
+    ...(input.vercel.project === null
+      ? { kind: "unlink" as const }
+      : {
+          kind: "link" as const,
+          vercelProject: input.vercel.project,
+          branch: null,
+        }),
+  }).pipe(Effect.result);
+  return result._tag === "Failure"
+    ? "Thread created, but Vercel could not be linked. Open Vercel in the thread to try again."
+    : null;
+});
 /** Creates an idle thread. Sending the editable prompt stays an explicit composer action. */
 export const startWorkTaskThread = Effect.fn("WorkTaskThread.start")(function* (
   input: WorkTaskThreadInput,
 ) {
   const current = yield* request(WS_METHODS.workItemsGet, { id: input.task.id });
-  if (current.agentThreadId === input.threadId) return { threadId: input.threadId, warning: null };
+  if (current.agentThreadId === input.threadId)
+    return { threadId: input.threadId, warning: yield* linkVercel(input) };
   if (current.revision !== input.task.revision || current.archivedAt)
     return yield* new WorkItemError({
       code: "conflict",
@@ -160,10 +180,11 @@ export const startWorkTaskThread = Effect.fn("WorkTaskThread.start")(function* (
     modelSelection: input.modelSelection,
     runtimeMode: "approval-required",
     interactionMode: "default",
-    branch: input.worktree?.refName ?? null,
+    branch: input.worktree?.refName ?? input.branch ?? null,
     worktreePath: input.worktree?.path ?? null,
     createdAt: input.createdAt,
   });
+  const vercelWarning = yield* linkVercel(input);
   const linked = yield* request(WS_METHODS.workItemsMutate, {
     kind: "update",
     id: input.task.id,
@@ -180,7 +201,12 @@ export const startWorkTaskThread = Effect.fn("WorkTaskThread.start")(function* (
     threadId: input.threadId,
     warning:
       linked._tag === "Failure"
-        ? "Thread created, but the task could not be linked. You can link it using Edit task."
-        : null,
+        ? [
+            "Thread created, but the task could not be linked. You can link it using Edit task.",
+            vercelWarning,
+          ]
+            .filter(Boolean)
+            .join(" ")
+        : vercelWarning,
   };
 });

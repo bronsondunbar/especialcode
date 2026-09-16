@@ -55,6 +55,7 @@ const slackResource = (ref: SlackReference & { url: string | null }) => ({
 });
 const secretName = (id: string) => `slack-${id}`;
 const scopes = [
+  "chat:write",
   "search:read",
   "channels:read",
   "groups:read",
@@ -236,7 +237,7 @@ export const make = Effect.gen(function* () {
       if (!scopes.every((scope) => granted.includes(scope)))
         return yield* fail(
           "authentication",
-          "Slack did not grant the required read permissions. Reconnect with all requested scopes.",
+          "Slack did not grant the required permissions. Reconnect with all requested scopes.",
         );
       const existing = yield* workspaces();
       if (existing.length >= 10 && !existing.some((w) => w.id === result.team.id))
@@ -742,7 +743,32 @@ export const make = Effect.gen(function* () {
     if (!message) return yield* fail("not_found", "This message is not in the Slack inbox.");
     return message;
   }, Effect.mapError(storageError));
+  const prepareReply = Effect.fn("SlackService.prepareReply")(
+    function* (ref: SlackReference) {
+      const connected = yield* workspace(ref.workspaceId);
+      if (!connected.scopes.includes("chat:write"))
+        return yield* fail(
+          "authentication",
+          "Reconnect Slack with the chat:write user scope to post replies.",
+        );
+      const message = yield* read(ref);
+      const accessToken = yield* token(ref.workspaceId);
+      // Resolve the parent from the saved message, including when the task came from a reply.
+      return (body: string, commandId: string) =>
+        adapter.reply(
+          accessToken,
+          ref.workspaceId,
+          ref.channelId,
+          message.threadTs,
+          body,
+          commandId,
+        );
+    },
+    lock.withPermits(1),
+    Effect.mapError(storageError),
+  );
   return {
+    prepareReply,
     start,
     syncWorkspace,
     completeOAuth,

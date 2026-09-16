@@ -383,6 +383,8 @@ export function matchesPullRequestFilters(
   const labels = entry.labels.map((label) => label.name.trim().toLowerCase());
   const holds = (label: string) => labels.includes(label.trim().toLowerCase());
   return (
+    (filters.repository === undefined ||
+      entry.repository.toLowerCase() === filters.repository.toLowerCase()) &&
     (filters.draft === undefined || entry.isDraft === (filters.draft === "only")) &&
     (filters.review === undefined ||
       (filters.review === "none"

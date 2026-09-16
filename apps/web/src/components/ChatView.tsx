@@ -2455,6 +2455,7 @@ export default function ChatView(props: ChatViewProps) {
     !envLocked &&
     hasMultipleEnvironments &&
     loadBalancingSettings.loadBalancingEnabled &&
+    !draftThread?.vercel &&
     draftThread?.environmentSelection !== "manual" &&
     (!composerHasAttachments || Boolean(draftThread?.loadBalancedEnvironmentId)) &&
     (!draftThread?.branch || draftThread.environmentSelection === "auto") &&
@@ -7546,6 +7547,7 @@ export default function ChatView(props: ChatViewProps) {
               ...(isLocalDraftThread
                 ? {
                     createThread: {
+                      ...(draftThread?.vercel ? { vercel: draftThread.vercel } : {}),
                       projectId: activeProject.id,
                       title,
                       modelSelection: threadCreateModelSelection,

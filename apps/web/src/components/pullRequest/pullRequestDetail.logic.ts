@@ -678,11 +678,31 @@ export function handoffReviewComments(
   ];
 }
 
-/**
- * The task for handing a pull request's review findings to a fresh thread. Everything derived
- * from the pull request is explicitly marked untrusted: review bodies and check output are
- * attacker-controlled on public repositories.
- */
+/** Resolved discussions and empty threads do not represent work for the agent. */
+export function unresolvedPullRequestReviewThreads(
+  threads: ReadonlyArray<PullRequestReviewThread>,
+) {
+  return threads.filter(
+    (thread) =>
+      !thread.isResolved && thread.comments.some((comment) => comment.body.trim().length > 0),
+  );
+}
+
+export function buildAddressCommentsHandoff(
+  input: Omit<Parameters<typeof buildFixFindingsHandoff>[0], "comments" | "checks">,
+): FixFindingsHandoff {
+  const task = buildFixFindingsHandoff({ ...input, comments: [], checks: [] });
+  return {
+    ...task,
+    prompt: [
+      task.prompt,
+      "Before editing, verify this checkout belongs to the PR repository and branch. If it does not, explain the mismatch before making changes.",
+      "Address each valid unresolved review comment, run relevant checks, and summarize what was changed and anything still outstanding. Leave commits, pushes, GitHub replies, and marking discussions resolved for the user to approve.",
+    ].join("\n"),
+  };
+}
+
+/** Review bodies and check output stay marked as untrusted data in the handoff. */
 export function buildFixFindingsHandoff(input: {
   readonly number: number;
   readonly title: string;
@@ -696,10 +716,7 @@ export function buildFixFindingsHandoff(input: {
   readonly commentsTruncated: boolean;
 }): FixFindingsHandoff {
   // A resolved conversation is finished work, and one nobody wrote in says nothing.
-  const threads = input.reviewThreads.filter(
-    (thread) =>
-      !thread.isResolved && thread.comments.some((comment) => comment.body.trim().length > 0),
-  );
+  const threads = unresolvedPullRequestReviewThreads(input.reviewThreads);
   // Not every finding can be a chip. A review submitted with words and no inline comment has no
   // line to hang on, and a host that reports no threads at all — Azure DevOps has no diff to pin
   // one to — has only these. They travel as text, the way a failing check does, rather than

@@ -1,3 +1,4 @@
+import { VercelSettingsPanel } from "../components/vercel/VercelSettingsPanel";
 import { ClearWorkQueueButton } from "../components/work/ClearWorkQueueButton";
 import { WorkTaskThreadButton } from "../components/work/WorkTaskThreadButton";
 import { WorkDashboard } from "../components/work/WorkDashboardPanel";
@@ -39,7 +40,7 @@ import { formatEnvironmentQueryError, useEnvironmentQuery } from "../state/query
 import { useAtomCommand } from "../state/use-atom-command";
 import { workItems } from "../state/workItems";
 
-const workTabs = ["queue", "github", "slack", "automations", "dashboard"] as const;
+const workTabs = ["queue", "github", "slack", "vercel", "automations", "dashboard"] as const;
 type WorkTab = (typeof workTabs)[number];
 export const Route = createFileRoute("/_chat/work")({
   component: WorkPage,
@@ -122,6 +123,14 @@ function WorkPage() {
               GitHub
             </Button>
           )}
+          {environment.serverConfig?.environment.capabilities.vercel && (
+            <Button
+              variant={tab === "vercel" ? "secondary" : "ghost"}
+              onClick={() => setTab("vercel")}
+            >
+              Vercel
+            </Button>
+          )}
         </div>
       )}
       {environment &&
@@ -162,6 +171,13 @@ function WorkPage() {
         tab === "github" &&
         environment.serverConfig?.environment.capabilities.githubIssues ? (
         <GitHubIssuesPanel
+          key={environment.environmentId}
+          environmentId={environment.environmentId}
+        />
+      ) : environment &&
+        tab === "vercel" &&
+        environment.serverConfig?.environment.capabilities.vercel ? (
+        <VercelSettingsPanel
           key={environment.environmentId}
           environmentId={environment.environmentId}
         />

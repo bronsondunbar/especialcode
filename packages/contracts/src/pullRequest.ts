@@ -15,6 +15,9 @@ import { SourceControlProviderKind } from "./sourceControl.ts";
 export const PullRequestInvolvement = Schema.Literals(["all", "reviewing", "authored"]);
 export type PullRequestInvolvement = typeof PullRequestInvolvement.Type;
 
+/** Route for a connected GitHub account's PRs that have no environment-local project. */
+export const GITHUB_ACCOUNT_PROJECT_ID = ProjectId.make("github-connected-account");
+
 export const PullRequestState = Schema.Literals(["open", "closed", "merged"]);
 export type PullRequestState = typeof PullRequestState.Type;
 
@@ -49,6 +52,8 @@ const PullRequestQualifierValues = Schema.Array(PullRequestQualifierValue).check
  * answers unnarrowed rather than the page pretending to know.
  */
 export const PullRequestListFilters = Schema.Struct({
+  /** Full repository name, independent of environment-local projects. */
+  repository: Schema.optional(PullRequestQualifierValue),
   draft: Schema.optional(Schema.Literals(["only", "hide"])),
   review: Schema.optional(
     Schema.Literals(["approved", "changes-requested", "review-required", "none"]),
@@ -1160,7 +1165,8 @@ const PROVIDER_REQUIREMENT: Partial<
   github: {
     missing:
       "GitHub CLI (`gh`) is required to browse change requests on this host. Install it from https://cli.github.com/ and reload.",
-    unauthenticated: "GitHub CLI is not authenticated. Run `gh auth login` and retry.",
+    unauthenticated:
+      "Connect or reconnect your account in Work → GitHub, then retry. For GitHub Enterprise, authenticate that host with `gh auth login --hostname HOST`.",
   },
   forgejo: {
     missing:

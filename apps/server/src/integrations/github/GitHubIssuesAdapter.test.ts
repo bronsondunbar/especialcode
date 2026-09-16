@@ -227,3 +227,82 @@ it.effect("uses saved tokens for issue reads and reports organizations omitted b
     assert.strictEqual(execute.mock.calls.length, 0);
   }).pipe(Effect.provide(layer)),
 );
+
+it.effect("posts reviewed issue comments with saved account credentials", () =>
+  Effect.gen(function* () {
+    let sent = 0;
+    const http = HttpClient.make((request) =>
+      Effect.sync(() => {
+        sent++;
+        assert.strictEqual(request.method, "POST");
+        assert.strictEqual(
+          request.url,
+          "https://api.github.com/repos/owner/repo/issues/42/comments",
+        );
+        assert.strictEqual(request.headers.authorization, "Bearer saved-token");
+        assert.strictEqual(request.body._tag, "Uint8Array");
+        if (request.body._tag === "Uint8Array")
+          assert.strictEqual(
+            new TextDecoder().decode(request.body.body),
+            '{"body":"Reviewed update"}',
+          );
+        return HttpClientResponse.fromWeb(
+          request,
+          Response.json(
+            {
+              id: 1,
+              user: { login: "alice" },
+              body: "Reviewed update",
+              html_url: "https://github.com/owner/repo/issues/42#issuecomment-1",
+              created_at: "2026-09-16T00:00:00Z",
+              updated_at: "2026-09-16T00:00:00Z",
+            },
+            { status: 201 },
+          ),
+        );
+      }),
+    );
+    const adapter = yield* make.pipe(
+      Effect.provideService(HttpClient.HttpClient, http),
+      Effect.provideService(
+        ServerSecretStore,
+        ServerSecretStore.of({
+          get: () => Effect.succeed(Option.some(new TextEncoder().encode("saved-token"))),
+          set: () => Effect.void,
+          remove: () => Effect.void,
+          create: () => Effect.die("unused"),
+          getOrCreateRandom: () => Effect.die("unused"),
+        }),
+      ),
+    );
+    assert.deepEqual(yield* adapter.comment({ ...repo, number: 42 }, "Reviewed update"), {
+      url: "https://github.com/owner/repo/issues/42#issuecomment-1",
+    });
+    assert.strictEqual(sent, 1);
+    assert.strictEqual(execute.mock.calls.length, 0);
+  }).pipe(Effect.provide(layer)),
+);
+
+it.effect("pipes GitHub CLI comment bodies through stdin", () =>
+  Effect.gen(function* () {
+    execute.mockReturnValueOnce(
+      Effect.succeed(
+        output({
+          id: 1,
+          user: { login: "alice" },
+          body: "Reviewed update",
+          html_url: "https://github.com/owner/repo/issues/42#issuecomment-1",
+          created_at: "2026-09-16T00:00:00Z",
+          updated_at: "2026-09-16T00:00:00Z",
+        }),
+      ),
+    );
+    const adapter = yield* make;
+    yield* adapter.comment({ ...repo, number: 42 }, "Reviewed update");
+    const call = execute.mock.calls[0]![0];
+    assert.include(call.args, "POST");
+    assert.include(call.args, "--input");
+    assert.notInclude(call.args, "Reviewed update");
+    assert.strictEqual(call.stdin, '{"body":"Reviewed update"}');
+  }).pipe(Effect.provide(layer)),
+);

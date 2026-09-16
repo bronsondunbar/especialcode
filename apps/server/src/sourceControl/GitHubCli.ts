@@ -1,3 +1,7 @@
+import * as NodeCrypto from "node:crypto";
+import { ChildProcessSpawner } from "effect/unstable/process";
+import { ServerSecretStore, layer as secretStoreLayer } from "../auth/ServerSecretStore.ts";
+import { githubAccountSecretName } from "../auth/githubAccountSecret.ts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -81,7 +85,7 @@ export class GitHubCliAuthenticationError extends Schema.TaggedError<GitHubCliAu
   gitHubCliFailureFields,
 ) {
   get detail(): string {
-    return "GitHub CLI is not authenticated. Run `gh auth login` and retry.";
+    return "GitHub authentication failed. Check Work → GitHub for GitHub.com, or `gh auth login` for another host.";
   }
 
   override get message(): string {
@@ -277,12 +281,14 @@ export class GitHubCli extends Context.Service<
     }) => Effect.Effect<VcsProcess.VcsProcessOutput, GitHubCliError>;
 
     readonly listOpenPullRequests: (input: {
+      readonly repository?: string;
       readonly cwd: string;
       readonly headSelector: string;
       readonly limit?: number;
     }) => Effect.Effect<ReadonlyArray<GitHubPullRequestSummary>, GitHubCliError>;
 
     readonly getPullRequest: (input: {
+      readonly repository?: string;
       readonly cwd: string;
       readonly reference: string;
     }) => Effect.Effect<GitHubPullRequestSummary, GitHubCliError>;
@@ -299,6 +305,7 @@ export class GitHubCli extends Context.Service<
     }) => Effect.Effect<GitHubRepositoryCloneUrls, GitHubCliError>;
 
     readonly createPullRequest: (input: {
+      readonly repository?: string;
       readonly cwd: string;
       readonly baseBranch: string;
       readonly headSelector: string;
@@ -307,10 +314,12 @@ export class GitHubCli extends Context.Service<
     }) => Effect.Effect<void, GitHubCliError>;
 
     readonly getDefaultBranch: (input: {
+      readonly repository?: string;
       readonly cwd: string;
     }) => Effect.Effect<string | null, GitHubCliError>;
 
     readonly checkoutPullRequest: (input: {
+      readonly repository?: string;
       readonly cwd: string;
       readonly reference: string;
       readonly force?: boolean;
@@ -377,10 +386,39 @@ function deriveRepositoryCloneUrlsFromCreateOutput(
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const process = yield* VcsProcess.VcsProcess;
+  const secrets = yield* Effect.serviceOption(ServerSecretStore);
 
   const execute: GitHubCli["Service"]["execute"] = Effect.fn("GitHubCli.execute")(
     function* (input) {
-      const credential = yield* PinnedGitHubCredential;
+      let credential = yield* PinnedGitHubCredential;
+      if (
+        credential === null &&
+        targetsVerifiedHost(input.args, "github.com") &&
+        Option.isSome(secrets)
+      ) {
+        const saved = yield* secrets.value.get(githubAccountSecretName).pipe(
+          Effect.mapError(
+            () =>
+              new GitHubCliAuthenticationError({
+                command: "gh",
+                cwd: input.cwd,
+                cause: new Error("Could not read the connected GitHub account."),
+              }),
+          ),
+        );
+        const token = Option.isSome(saved) ? new TextDecoder().decode(saved.value).trim() : "";
+        if (!token)
+          return yield* new GitHubCliAuthenticationError({
+            command: "gh",
+            cwd: input.cwd,
+            cause: new Error("Connect your account in Work → GitHub."),
+          });
+        credential = {
+          host: "github.com",
+          token: Redacted.make(token),
+          credentialFingerprint: `github.com:${NodeCrypto.createHash("sha256").update(token).digest("hex")}`,
+        };
+      }
       if (credential !== null && !targetsVerifiedHost(input.args, credential.host)) {
         return yield* new GitHubCliCommandError({
           command: "gh",
@@ -389,6 +427,15 @@ export const make = Effect.gen(function* () {
         });
       }
       const token = credential === null ? undefined : Redacted.value(credential.token);
+      if (credential !== null && input.args[0] === "auth" && input.args[1] === "token") {
+        return {
+          exitCode: ChildProcessSpawner.ExitCode(0),
+          stdout: token!,
+          stderr: "",
+          stdoutTruncated: false,
+          stderrTruncated: false,
+        };
+      }
       const env =
         credential === null
           ? input.env
@@ -424,6 +471,7 @@ export const make = Effect.gen(function* () {
         args: [
           "pr",
           "list",
+          ...(input.repository ? ["--repo", input.repository] : []),
           "--head",
           input.headSelector,
           "--state",
@@ -462,6 +510,7 @@ export const make = Effect.gen(function* () {
           "pr",
           "view",
           input.reference,
+          ...(input.repository ? ["--repo", input.repository] : []),
           "--json",
           "number,title,url,baseRefName,headRefName,state,isDraft,mergedAt,closedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
         ],
@@ -520,6 +569,7 @@ export const make = Effect.gen(function* () {
         args: [
           "pr",
           "create",
+          ...(input.repository ? ["--repo", input.repository] : []),
           "--base",
           input.baseBranch,
           "--head",
@@ -533,7 +583,15 @@ export const make = Effect.gen(function* () {
     getDefaultBranch: (input) =>
       execute({
         cwd: input.cwd,
-        args: ["repo", "view", "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"],
+        args: [
+          "repo",
+          "view",
+          ...(input.repository ? [input.repository] : []),
+          "--json",
+          "defaultBranchRef",
+          "--jq",
+          ".defaultBranchRef.name",
+        ],
       }).pipe(
         Effect.map((value) => {
           const trimmed = value.stdout.trim();
@@ -543,9 +601,18 @@ export const make = Effect.gen(function* () {
     checkoutPullRequest: (input) =>
       execute({
         cwd: input.cwd,
-        args: ["pr", "checkout", input.reference, ...(input.force ? ["--force"] : [])],
+        args: [
+          "pr",
+          "checkout",
+          input.reference,
+          ...(input.repository ? ["--repo", input.repository] : []),
+          ...(input.force ? ["--force"] : []),
+        ],
       }).pipe(Effect.asVoid),
   });
 });
 
 export const layer = Layer.effect(GitHubCli, make);
+
+/** Production wiring always reads Work’s current connection; test harnesses may omit it. */
+export const layerConnected = layer.pipe(Layer.provide(secretStoreLayer));

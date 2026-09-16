@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./state/vercel": {
+      "types": "./src/state/vercel.ts",
+      "default": "./src/state/vercel.ts"
+    },
     "./state/work-items": {
       "types": "./src/state/workItems.ts",
       "default": "./src/state/workItems.ts"

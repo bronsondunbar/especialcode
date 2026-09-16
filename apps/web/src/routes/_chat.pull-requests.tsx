@@ -1,6 +1,10 @@
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { Spinner } from "~/components/ui/spinner";
-import { pullRequestHostOf, resolveEnvironmentMachineKind } from "@t3tools/contracts";
+import {
+  GITHUB_ACCOUNT_PROJECT_ID,
+  pullRequestHostOf,
+  resolveEnvironmentMachineKind,
+} from "@t3tools/contracts";
 import type {
   EnvironmentId,
   ProjectId,
@@ -85,7 +89,6 @@ import {
   type PullRequestListSort,
   writePullRequestListPreferences,
 } from "../components/pullRequest/pullRequestListPreferences";
-import { assignProjectsToEnvironments } from "../components/pullRequest/pullRequestProjectAssignment.logic";
 import { pullRequestFilterProjects } from "../components/pullRequest/pullRequestProjectFilter.logic";
 import { environmentMachineIcon } from "../components/EnvironmentMachineIcon";
 import { PullRequestDetailPanel } from "../components/pullRequest/PullRequestDetailPanel";
@@ -253,6 +256,9 @@ export const Route = createFileRoute("/_chat/pull-requests")({
     ...(SORT_OPTIONS.some((option) => option.value === raw.sort)
       ? { sort: raw.sort as PullRequestListSort }
       : {}),
+    ...(typeof raw.repo === "string" && raw.repo.trim()
+      ? { repo: raw.repo.trim().slice(0, 200) }
+      : {}),
     ...(typeof raw.repository === "string" && raw.repository
       ? { repository: raw.repository.slice(0, 200) }
       : {}),
@@ -400,7 +406,10 @@ function PullRequestsRouteView() {
   // The selection is resolved the same way the scope is: an id no connected environment has can
   // never be read here, and one that arrived before the projects did is not yet wrong.
   const linkedProjectId = useMemo(
-    () => resolveProjectScope(search.selectedProjectId, projects, projectsKnown),
+    () =>
+      search.selectedProjectId === GITHUB_ACCOUNT_PROJECT_ID
+        ? GITHUB_ACCOUNT_PROJECT_ID
+        : resolveProjectScope(search.selectedProjectId, projects, projectsKnown),
     [projects, projectsKnown, search.selectedProjectId],
   );
   // The scope filter stands in as a last resort: a link can carry `projectId` with a repository
@@ -492,6 +501,7 @@ function PullRequestsRouteView() {
             ...(next.review ? { review: next.review } : {}),
             ...(next.checks ? { checks: next.checks } : {}),
             ...(next.author ? { author: next.author } : {}),
+            ...(next.repo ? { repo: next.repo } : {}),
             ...(next.labels && next.labels.length > 0 ? { labels: next.labels } : {}),
           };
         },
@@ -542,9 +552,10 @@ function PullRequestsRouteView() {
       ...(search.review ? { review: search.review } : {}),
       ...(search.checks ? { checks: search.checks } : {}),
       ...(search.author ? { author: search.author } : {}),
+      ...(search.repo ? { repository: search.repo } : {}),
       ...(search.labels ? { labels: search.labels.map((label) => [label]) } : {}),
     }),
-    [search.author, search.checks, search.draft, search.labels, search.review],
+    [search.author, search.checks, search.draft, search.labels, search.review, search.repo],
   );
   const menuFiltered = Object.keys(menuFilters).length > 0;
   // A typed qualifier wins over the menu's own answer for the same thing, since it is the more
@@ -576,39 +587,15 @@ function PullRequestsRouteView() {
       ),
     [environmentIds, projects, projectsKnown, scopedProject, scopedProjectId],
   );
-  /**
-   * Which projects each server is asked about. Two servers holding the same repository would both
-   * list the same pull requests, so each repository is listed by one of them — the first, which is
-   * where the page's actions land — and the others are asked only for what is theirs alone. A
-   * server left with nothing of its own is not read at all.
-   *
-   * Left alone while the projects are still arriving, and while the scope is a single project:
-   * that path deliberately asks both servers holding an ambiguous id.
-   */
-  const environmentQueries = useMemo((): ReadonlyArray<{
-    readonly environmentId: EnvironmentId;
-    readonly projectIds?: ReadonlyArray<ProjectId>;
-  }> => {
-    const plain = queryEnvironmentIds.map((environmentId) => ({ environmentId }));
-    if (!projectsKnown || scopedProjectId !== undefined) return plain;
-    const assignment = assignProjectsToEnvironments(
-      projects,
-      queryEnvironmentIds,
-      queryEnvironmentIds[0],
-    );
-    const totals = new Map<EnvironmentId, number>();
-    for (const project of projects) {
-      totals.set(project.environmentId, (totals.get(project.environmentId) ?? 0) + 1);
-    }
-    return queryEnvironmentIds.flatMap((environmentId) => {
-      const projectIds = assignment.get(environmentId);
-      if (projectIds === undefined) return [];
-      // It lists everything it holds anyway, so the filter is left off and a one-server workspace
-      // asks exactly the question it asked before.
-      if (projectIds.length === (totals.get(environmentId) ?? 0)) return [{ environmentId }];
-      return [{ environmentId, projectIds }];
-    });
-  }, [projects, projectsKnown, queryEnvironmentIds, scopedProjectId]);
+  // Account feeds include repositories without local projects, so every selected environment
+  // must be queried even when it has no projects or shares its checkouts with another server.
+  const environmentQueries = useMemo(
+    (): ReadonlyArray<{
+      readonly environmentId: EnvironmentId;
+      readonly projectIds?: ReadonlyArray<ProjectId>;
+    }> => queryEnvironmentIds.map((environmentId) => ({ environmentId })),
+    [queryEnvironmentIds],
+  );
   // Part of the scope, since a different split is a different question and its answers must not
   // be filed under the same page state.
   const assignmentKey = useMemo(
@@ -625,7 +612,7 @@ function PullRequestsRouteView() {
     .map(([environmentId, revision]) => `${environmentId}:${revision}`)
     .join("|");
   // Page size is view state, not a URL concern: a shared link should open the first page.
-  const scopeKey = `${environmentKey}:${assignmentKey}:${search.state}:${search.involvement}:${scopedProjectId ?? ""}:${search.host ?? ""}:${search.draft ?? ""}:${search.review ?? ""}:${search.checks ?? ""}:${search.author ?? ""}:${search.labels?.join("\u0000") ?? ""}`;
+  const scopeKey = `${environmentKey}:${assignmentKey}:${search.state}:${search.involvement}:${scopedProjectId ?? ""}:${search.host ?? ""}:${search.draft ?? ""}:${search.review ?? ""}:${search.checks ?? ""}:${search.author ?? ""}:${search.repo ?? ""}:${search.labels?.join("\u0000") ?? ""}`;
   const filterKey = `${scopeKey}:${sentQuery}`;
   const statsScopeRef = useRef<PullRequestStatsScope>({ key: filterKey, policy: statsPolicy });
   statsScopeRef.current = { key: filterKey, policy: statsPolicy };
@@ -1157,6 +1144,19 @@ function PullRequestsRouteView() {
     [baselineQuery.data?.entries, facetQuery.data?.entries, listData?.entries, search.state],
   );
 
+  const repositoryOptions = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const entry of [
+      ...(facetQuery.data?.entries ?? []),
+      ...(baselineQuery.data?.entries ?? []),
+      ...(listData?.entries ?? []),
+    ]) {
+      names.set(entry.repository.toLowerCase(), entry.repository);
+    }
+    if (search.repo) names.set(search.repo.toLowerCase(), search.repo);
+    return [...names.values()].sort((left, right) => left.localeCompare(right));
+  }, [facetQuery.data?.entries, baselineQuery.data?.entries, listData?.entries, search.repo]);
+
   /** The hosts that narrowed the listing themselves, so their answer is not narrowed again. */
   const searchingHosts = useMemo(
     () =>
@@ -1439,19 +1439,30 @@ function PullRequestsRouteView() {
     [displayGroups],
   );
 
-  const linkedSelection = useMemo(
-    () =>
-      search.repository && search.number && selectedProject
-        ? {
-            environmentId: selectedProject.environmentId,
-            repository: search.repository,
-            number: search.number,
-            projectId: selectedProject.id,
-            ...(selectedHost ? { host: selectedHost } : {}),
-          }
-        : null,
-    [search.number, search.repository, selectedProject, selectedHost],
-  );
+  const linkedSelection = useMemo(() => {
+    const environmentId =
+      selectedProject?.environmentId ??
+      (selectedProjectId === GITHUB_ACCOUNT_PROJECT_ID
+        ? (selectedEnvironmentId ?? environmentIds[0])
+        : undefined);
+    return search.repository && search.number && selectedProjectId && environmentId
+      ? {
+          environmentId,
+          repository: search.repository,
+          number: search.number,
+          projectId: selectedProjectId,
+          ...(selectedHost ? { host: selectedHost } : {}),
+        }
+      : null;
+  }, [
+    search.number,
+    search.repository,
+    selectedProject,
+    selectedHost,
+    selectedProjectId,
+    selectedEnvironmentId,
+    environmentIds,
+  ]);
   const rightPanelAvailable = selectedPullRequestSurface !== null;
   useEffect(() => {
     if (!pullRequestsSupported || rightPanelRef === null || linkedSelection === null) return;
@@ -1625,7 +1636,13 @@ function PullRequestsRouteView() {
         <PullRequestListGhost rows={7} />
       ) : entries.length === 0 ? (
         <PullRequestListEmptyState
-          hasProjects={!projectsKnown || projects.length > 0}
+          hasProjects={
+            !projectsKnown ||
+            projects.length > 0 ||
+            listData?.providers.some(
+              (provider) => provider.kind === "github" && provider.configured,
+            ) === true
+          }
           refreshing={refreshing}
           onRefresh={() => void refreshFromHost()}
           query={typedQuery}
@@ -1774,9 +1791,11 @@ function PullRequestsRouteView() {
           review: next.review,
           checks: next.checks,
           author: next.author,
+          repo: next.repository,
           labels: next.labels?.flatMap((group) => group),
         })
       }
+      repositoryOptions={repositoryOptions}
       authorOptions={facets.authors}
       labelOptions={facets.labels}
       host={search.host}

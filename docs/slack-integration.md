@@ -41,7 +41,9 @@ Stopping channel tracking clears its manual inbox cache and defaults; direct men
 create tasks while the workspace is connected. Disconnecting a workspace removes its
 local credentials and cached channels/messages and attempts to revoke Slack access.
 Imported tasks and their source references remain. Slack mentions and imports follow the
-Slack categories in Notification preferences. No action sends a message to Slack.
+Slack categories in Notification preferences. Importing and syncing do not send messages. To reply, open a linked thread and choose
+**Draft update**, review the destination and text, then choose **Post Slack reply**. Replies
+stay in the original Slack thread, including when the task came from a reply.
 
 ### Connect your Slack app
 
@@ -49,7 +51,8 @@ The environment owner needs a Slack app and a stable HTTPS address that reaches 
 T3 server, including from the browser used to authorize it. In Slack's **OAuth & Permissions**,
 register that address followed by `/api/integrations/slack/callback` as the redirect URL.
 Enable the user-token scopes `search:read`, `channels:read`, `groups:read`,
-`channels:history` and `groups:history`. No bot or message-writing scopes are needed.
+`channels:history`, `groups:history` and `chat:write`. No bot token is needed. Existing
+connections need to be reconnected with the `chat:write` user scope before posting replies.
 Set these environment variables on the machine running the T3 server, then restart it:
 
 ```text

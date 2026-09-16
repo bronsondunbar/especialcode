@@ -929,6 +929,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       replaceComposerDraftAttachments(draftKey, message.attachments);
       updateComposerDraftSettings(draftKey, {
         modelSelection: message.modelSelection,
+        vercel: message.creation.vercel ?? null,
         runtimeMode: message.runtimeMode,
         interactionMode: message.interactionMode,
         workspaceSelection: {
@@ -1005,6 +1006,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
           ),
         }),
         creation: {
+          ...(draft.vercel ? { vercel: draft.vercel } : {}),
           projectId: selectedProject.id,
           ...(projectTitle !== undefined ? { projectTitle } : {}),
           ...(projectCwd !== undefined ? { projectCwd } : {}),

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { type EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import {
@@ -109,6 +110,7 @@ import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-live-follow";
 
 export interface ThreadDetailScreenProps {
+  readonly composerLeadingAction?: ReactNode;
   readonly selectedThread: OrchestrationThreadShell;
   readonly contentPresentation: ThreadContentPresentation;
   readonly screenTone: StatusTone;
@@ -1027,6 +1029,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               >
                 <GlassBlurTargetContext value={feedBlurTarget}>
                   <ThreadComposer
+                    leadingAction={props.composerLeadingAction}
                     editorRef={composerEditorRef}
                     draftMessage={props.draftMessage}
                     draftAttachments={props.draftAttachments}

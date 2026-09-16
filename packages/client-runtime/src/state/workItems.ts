@@ -1,3 +1,5 @@
+import { loadThreadUpdateTargets } from "../operations/workTaskUpdate.ts";
+export { workTaskUpdateDraft } from "../operations/workTaskUpdate.ts";
 import { loadWorkTaskDiscussion } from "../operations/workTaskDiscussion.ts";
 export {
   workTaskDiscussionSources,
@@ -35,6 +37,15 @@ import {
 /** Shared environment-scoped transport, including reconnect/resubscribe behavior. */
 export function createWorkItemAtoms<R, E>(runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>) {
   return {
+    updateTargets: createEnvironmentQueryAtomFamily(runtime, {
+      label: "work-items:update-targets",
+      execute: loadThreadUpdateTargets,
+      staleTimeMs: 0,
+    }),
+    postUpdate: createEnvironmentRpcCommand(runtime, {
+      label: "work-items:post-update",
+      tag: WS_METHODS.workTaskUpdate,
+    }),
     previewClear: createEnvironmentCommand(runtime, {
       label: "work-items:preview-clear",
       execute: previewClearWorkQueue,

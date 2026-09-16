@@ -39,7 +39,7 @@ function GitHubIssuesPanelContent({ environmentId }: { environmentId: Environmen
         <div>
           <h2 className="text-xl font-semibold">GitHub</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Connect your account. Assigned issues appear automatically in your Work queue.
+            Connect your account for assigned issues, the PRs tab, and creating PRs from threads.
           </p>
         </div>
         {!accountSupported && <p>Update this environment to connect a GitHub account.</p>}
@@ -100,13 +100,14 @@ function GitHubIssuesPanelContent({ environmentId }: { environmentId: Environmen
               </Button>
             </form>
             <p className="text-sm text-muted-foreground">
-              For private repositories across organizations, use a classic token with repo scope and
-              authorize any required organization SSO. Organization policies may restrict access.
+              For private repositories across organizations, use a classic token with repo scope,
+              then authorize any required organization SSO. Add read:org for team reviewer
+              information; PR details work without it. Organization policies may restrict access.
               The token stays on this environment; tasks are visible to clients connected to it.
             </p>
             <a
               className="text-sm underline"
-              href="https://github.com/settings/tokens/new?description=EspecialCode%20assigned%20issues&amp;scopes=repo"
+              href="https://github.com/settings/tokens/new?description=EspecialCode%20GitHub&amp;scopes=repo,read:org"
               target="_blank"
               rel="noreferrer"
             >

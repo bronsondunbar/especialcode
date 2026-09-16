@@ -1,3 +1,4 @@
+import { VercelThreadTab } from "./vercel/VercelThreadTab";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { GitPullRequestIcon } from "lucide-react";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
@@ -936,6 +937,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           </div>
         </div>
       </SidebarMenuSubButton>
+      {isActive && (
+        <VercelThreadTab
+          key={threadKey}
+          environmentId={thread.environmentId}
+          projectId={thread.projectId}
+          threadId={thread.id}
+        />
+      )}
     </SidebarMenuSubItem>
   );
 });

@@ -58,7 +58,7 @@ function GitHubIssuesPanelContent({ environmentId }: { environmentId: Environmen
     >
       <Text className="text-xl font-semibold">GitHub</Text>
       <Text className="text-sm text-muted-foreground">
-        Connect your account. Assigned issues appear automatically in your Work queue.
+        Connect your account for assigned issues, the PRs tab, and creating PRs from threads.
       </Text>
       {!accountSupported && <Text>Update this environment to connect a GitHub account.</Text>}
       {result.isPending && !result.data && <Text>Loading GitHub connection…</Text>}
@@ -105,15 +105,16 @@ function GitHubIssuesPanelContent({ environmentId }: { environmentId: Environmen
             onPress={() => void manageAccount({ kind: "connect", token: token.trim() })}
           />
           <Text className="text-sm text-muted-foreground">
-            For private repositories across organizations, use a classic token with repo scope and
-            authorize required organization SSO. Organization policies may restrict access. The
-            token stays on this environment; tasks are visible to clients connected to it.
+            For private repositories across organizations, use a classic token with repo scope, then
+            authorize required organization SSO. Add read:org for team reviewer information; PR
+            details work without it. Organization policies may restrict access. The token stays on
+            this environment; tasks are visible to clients connected to it.
           </Text>
           <ControlPill
             label="Create a GitHub token"
             onPress={() =>
               void open(
-                "https://github.com/settings/tokens/new?description=EspecialCode%20assigned%20issues&scopes=repo",
+                "https://github.com/settings/tokens/new?description=EspecialCode%20GitHub&scopes=repo,read:org",
               )
             }
           />

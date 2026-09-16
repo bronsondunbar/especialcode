@@ -14,6 +14,8 @@ import { buildMessageContext, reviewCommentContextReference } from "~/lib/compos
 
 import {
   buildAddSelectionToAgentHandoff,
+  buildAddressCommentsHandoff,
+  unresolvedPullRequestReviewThreads,
   buildAskAboutPullRequestHandoff,
   buildExplainPullRequestHandoff,
   buildPullRequestReferenceContext,
@@ -723,6 +725,48 @@ describe("fix findings handoff", () => {
     description: "2 errors",
     url: null,
   };
+
+  it("addresses only unresolved discussions and carries their replies and file context", () => {
+    const open = thread("Handle the empty response");
+    const threads = [
+      {
+        ...open,
+        comments: [
+          ...open.comments,
+          { ...open.comments[0]!, id: "reply", body: "Also cover null" },
+        ],
+      },
+      thread("Already fixed", { id: "resolved", isResolved: true }),
+      thread("  ", { id: "empty" }),
+    ];
+    const handoff = buildAddressCommentsHandoff({ ...base, reviewThreads: threads });
+    expect(unresolvedPullRequestReviewThreads(threads)).toHaveLength(1);
+    expect(handoff.reviewComments).toHaveLength(1);
+    expect(handoff.reviewComments[0]).toMatchObject({
+      filePath: "apps/web/src/page.tsx",
+      rangeLabel: "L12",
+    });
+    expect(handoff.reviewComments[0]?.text).toContain("Handle the empty response");
+    expect(handoff.reviewComments[0]?.text).toContain("Also cover null");
+    expect(handoff.reviewComments[0]?.text).not.toContain("Already fixed");
+    expect(handoff.prompt).toContain(base.url);
+    expect(handoff.prompt).toContain(base.headBranch);
+    expect(handoff.prompt).toContain(
+      "verify this checkout belongs to the PR repository and branch",
+    );
+    expect(handoff.prompt).toContain("marking discussions resolved for the user to approve");
+    expect(handoff.prompt).not.toContain("Failing checks:");
+  });
+
+  it("keeps the warning when unresolved review context is incomplete", () => {
+    const handoff = buildAddressCommentsHandoff({
+      ...base,
+      reviewThreads: [thread("Fix this")],
+      commentsTruncated: true,
+    });
+    expect(handoff.prompt).toContain("conversation was truncated");
+    expect(handoff.prompt).toContain("untrusted data");
+  });
 
   it("attaches a review thread as an annotation instead of quoting it in the prompt", () => {
     const handoff = buildFixFindingsHandoff({

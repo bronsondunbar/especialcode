@@ -2,7 +2,8 @@ import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import { ServerSecretStore } from "../../auth/ServerSecretStore.ts";
-export const accountSecretName = "github-issues-account";
+import { githubAccountSecretName as accountSecretName } from "../../auth/githubAccountSecret.ts";
+export { accountSecretName };
 import {
   GitHubIssuesError,
   type GitHubIssue,
@@ -52,6 +53,10 @@ const RawComment = Schema.Struct({
 });
 const decodeIssues = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Array(RawIssue)));
 const decodeIssue = Schema.decodeUnknownEffect(Schema.fromJsonString(RawIssue));
+const encodeCommentBody = Schema.encodeSync(
+  Schema.fromJsonString(Schema.Struct({ body: Schema.String })),
+);
+const decodeComment = Schema.decodeUnknownEffect(Schema.fromJsonString(RawComment));
 const decodeComments = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Array(RawComment)));
 const invalidResponse = () =>
   new GitHubIssuesError({ code: "remote", message: "GitHub returned an invalid issue response." });
@@ -77,7 +82,12 @@ export const make = Effect.gen(function* () {
   const secrets = yield* ServerSecretStore;
   const rateLimit = yield* SourceControlRateLimit;
   const requestRaw = Effect.fn("GitHubIssuesAdapter.request")(
-    function* (repo: { host: string; repository?: string }, path: string, explicitToken?: string) {
+    function* (
+      repo: { host: string; repository?: string },
+      path: string,
+      explicitToken?: string,
+      postBody?: string,
+    ) {
       const key = { provider: "github" as const, host: repo.host };
       const lease = yield* rateLimit.check(key).pipe(
         Effect.mapError(
@@ -107,7 +117,12 @@ export const make = Effect.gen(function* () {
         if (repo.host !== "github.com") return yield* invalidResponse();
         const response = yield* http
           .execute(
-            HttpClientRequest.get(`https://api.github.com/${endpoint}`).pipe(
+            (postBody === undefined
+              ? HttpClientRequest.get(`https://api.github.com/${endpoint}`)
+              : HttpClientRequest.post(`https://api.github.com/${endpoint}`).pipe(
+                  HttpClientRequest.bodyText(postBody, "application/json"),
+                )
+            ).pipe(
               HttpClientRequest.bearerToken(token),
               HttpClientRequest.setHeader("Accept", "application/vnd.github+json"),
               HttpClientRequest.setHeader("X-GitHub-Api-Version", "2022-11-28"),
@@ -137,14 +152,16 @@ export const make = Effect.gen(function* () {
           return yield* new GitHubIssuesError({
             code: "authentication",
             message:
-              "Reconnect GitHub with a valid token and authorize organization access, including SSO if required.",
+              postBody === undefined
+                ? "Reconnect GitHub with a valid token and authorize organization access, including SSO if required."
+                : "GitHub rejected this comment. Update your token with Issues write permission and required organization access.",
           });
         if (response.status === 404)
           return yield* new GitHubIssuesError({
             code: "not_found",
             message: "GitHub issue not found or access was removed.",
           });
-        if (response.status !== 200)
+        if (response.status !== (postBody === undefined ? 200 : 201))
           return yield* new GitHubIssuesError({
             code: "remote",
             message: "GitHub could not complete this request.",
@@ -182,13 +199,15 @@ export const make = Effect.gen(function* () {
             "--hostname",
             repo.host,
             "--method",
-            "GET",
+            postBody === undefined ? "GET" : "POST",
             endpoint,
+            ...(postBody === undefined ? [] : ["--input", "-"]),
             "-H",
             "Accept: application/vnd.github+json",
             "-H",
             "X-GitHub-Api-Version: 2022-11-28",
           ],
+          ...(postBody === undefined ? {} : { stdin: postBody }),
           maxOutputBytes: 16 * 1024 * 1024,
         })
         .pipe(
@@ -357,7 +376,20 @@ export const make = Effect.gen(function* () {
       message: "Assigned issues exceed 10,000 records. No tasks were imported.",
     });
   });
-  return { list, detail, viewer, assigned };
+  const comment = Effect.fn("GitHubIssuesAdapter.comment")(function* (
+    ref: GitHubIssueReference,
+    body: string,
+  ) {
+    const response = yield* requestRaw(
+      ref,
+      `issues/${ref.number}/comments`,
+      undefined,
+      encodeCommentBody({ body }),
+    );
+    const comment = yield* decodeComment(response.body).pipe(Effect.mapError(invalidResponse));
+    return { url: comment.html_url };
+  });
+  return { list, detail, viewer, assigned, comment };
 });
 export class GitHubIssuesAdapter extends Context.Service<
   GitHubIssuesAdapter,

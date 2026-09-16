@@ -43,6 +43,7 @@ describe("project thread title", () => {
       suffix: "",
     });
     const input = buildProjectThreadStartTurnInput({
+      vercel: { project: "prj_app" },
       projectId: ProjectId.make("project"),
       projectCwd: "/workspace",
       threadId: "new-thread",
@@ -61,6 +62,7 @@ describe("project thread title", () => {
       worktreeBranchName: "unused",
     });
 
+    expect(input.bootstrap.createThread.vercel).toEqual({ project: "prj_app" });
     expect(input.titleSeed).toBe(title);
     expect(input.bootstrap.createThread.title).toBe(input.titleSeed);
     expect(input.message.text).toBe(text);

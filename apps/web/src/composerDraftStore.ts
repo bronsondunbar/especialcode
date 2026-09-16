@@ -1,3 +1,4 @@
+import { VercelThreadSelection } from "@t3tools/contracts";
 import { elementContextToPreviewAnnotation } from "./lib/elementContext";
 import {
   ElementContextDetails,
@@ -76,6 +77,7 @@ import { replaceComposerContextReferences } from "@t3tools/shared/composerContex
 import { UnifiedSettings } from "@t3tools/contracts/settings";
 import { ReviewCommentContextSchema, type ReviewCommentContext } from "./reviewCommentContext";
 const isRuntimeMode = Schema.is(RuntimeMode);
+const isVercelThreadSelection = Schema.is(VercelThreadSelection);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
 const isReviewCommentContext = Schema.is(ReviewCommentContextSchema);
 const isSnapShotSource = Schema.is(SnapShotSource);
@@ -310,6 +312,7 @@ type LegacyPersistedComposerDraftStoreState = PersistedComposerDraftStoreState &
   LegacyV2StoreFields;
 
 const PersistedDraftThreadState = Schema.Struct({
+  vercel: Schema.optionalKey(Schema.NullOr(VercelThreadSelection)),
   threadId: ThreadId,
   environmentId: Schema.String,
   projectId: ProjectId,
@@ -437,6 +440,7 @@ export function composerDraftHasUserContent(
  * environment/worktree configuration before the first send.
  */
 export interface DraftSessionState {
+  vercel?: VercelThreadSelection | null;
   threadId: ThreadId;
   environmentId: EnvironmentId;
   projectId: ProjectId;
@@ -545,6 +549,7 @@ interface ComposerDraftStoreState {
   setDraftThreadContext: (
     threadRef: ComposerThreadTarget,
     options: {
+      vercel?: VercelThreadSelection | null;
       branch?: string | null;
       worktreePath?: string | null;
       projectRef?: ScopedProjectRef;
@@ -1549,6 +1554,7 @@ function createDraftThreadState(
               : existingThread.loadBalancedEnvironmentId,
           }
         : {}),
+    ...(existingThread?.vercel && !projectChanged ? { vercel: existingThread.vercel } : {}),
     createdAt: options?.createdAt ?? existingThread?.createdAt ?? new Date().toISOString(),
     runtimeMode: options?.runtimeMode ?? existingThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE,
     interactionMode:
@@ -1728,6 +1734,9 @@ function normalizePersistedDraftThreads(
           typeof createdAt === "string" && createdAt.length > 0
             ? createdAt
             : new Date().toISOString(),
+        ...(isVercelThreadSelection(candidateDraftThread.vercel)
+          ? { vercel: candidateDraftThread.vercel }
+          : {}),
         runtimeMode: isRuntimeMode(candidateDraftThread.runtimeMode)
           ? candidateDraftThread.runtimeMode
           : DEFAULT_RUNTIME_MODE,
@@ -2485,6 +2494,7 @@ function toHydratedDraftThreadState(
     worktreePath: persistedDraftThread.worktreePath,
     envMode: persistedDraftThread.envMode,
     startFromOrigin: persistedDraftThread.startFromOrigin,
+    ...(persistedDraftThread.vercel ? { vercel: persistedDraftThread.vercel } : {}),
     ...(persistedDraftThread.environmentSelection
       ? { environmentSelection: persistedDraftThread.environmentSelection }
       : {}),
@@ -2755,6 +2765,12 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                 ? "manual"
                 : existing.environmentSelection);
             const nextDraftThread: DraftThreadState = {
+              vercel:
+                options.vercel !== undefined
+                  ? options.vercel
+                  : projectChanged
+                    ? null
+                    : (existing.vercel ?? null),
               threadId: existing.threadId,
               environmentId: nextProjectRef.environmentId,
               projectId: nextProjectRef.projectId,
@@ -2780,6 +2796,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               promotedTo: existing.promotedTo ?? null,
             };
             const isUnchanged =
+              nextDraftThread.vercel === (existing.vercel ?? null) &&
               nextDraftThread.environmentId === existing.environmentId &&
               nextDraftThread.projectId === existing.projectId &&
               nextDraftThread.logicalProjectKey === existing.logicalProjectKey &&

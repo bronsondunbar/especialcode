@@ -1,3 +1,5 @@
+import { VercelButton } from "../vercel/VercelButton";
+import { WorkTaskUpdateButton } from "../work/WorkTaskUpdateButton";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import {
   StackActions,
@@ -857,6 +859,16 @@ function ThreadRouteContent(
       >
         <ThreadDetailScreen
           selectedThread={selectedThreadWithDraftSettings ?? selectedThread}
+          composerLeadingAction={
+            selectedThreadCreation === null ? (
+              <WorkTaskUpdateButton
+                key={`${selectedThread.environmentId}:${selectedThread.id}`}
+                environmentId={selectedThread.environmentId}
+                threadId={selectedThread.id}
+                messages={selectedThreadDetail?.messages ?? []}
+              />
+            ) : null
+          }
           contentPresentation={contentPresentation}
           screenTone={connectionTone(routeConnectionState)}
           connectionError={routeConnectionError}
@@ -973,6 +985,14 @@ function ThreadRouteContent(
         />
       ) : null}
 
+      {selectedThreadCreation === null && (
+        <VercelButton
+          key={`vercel:${selectedThread.environmentId}:${selectedThread.id}`}
+          environmentId={selectedThread.environmentId}
+          projectId={selectedThread.projectId}
+          threadId={selectedThread.id}
+        />
+      )}
       {/* Android surfaces the git/files/inspector actions in its in-flow
           header above, so the fallback action toolbar stays iOS-only. */}
       {renderThreadRouteBody(

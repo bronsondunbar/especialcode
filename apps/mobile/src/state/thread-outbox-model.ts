@@ -1,3 +1,4 @@
+import { VercelThreadSelection } from "@t3tools/contracts";
 import { isTransportConnectionErrorMessage } from "@t3tools/client-runtime/errors";
 import {
   clampFileAttachmentUploadBytes,
@@ -33,6 +34,7 @@ const THREAD_OUTBOX_SCHEMA_VERSION = 3;
 const THREAD_OUTBOX_MAX_RETRY_DELAY_MS = 16_000;
 
 const QueuedThreadCreationSchema = Schema.Struct({
+  vercel: Schema.optionalKey(VercelThreadSelection),
   projectId: ProjectId,
   // Snapshot of the project's display metadata so a pending task stays
   // presentable in the thread list even when the project shell is not loaded.
@@ -66,6 +68,7 @@ const decodeStoredQueuedThreadMessage = Schema.decodeUnknownSync(QueuedThreadMes
 const encodeStoredQueuedThreadMessage = Schema.encodeUnknownSync(QueuedThreadMessageSchema);
 
 export interface QueuedThreadCreation {
+  readonly vercel?: VercelThreadSelection;
   readonly projectId: ProjectIdType;
   readonly projectTitle?: string;
   readonly projectCwd?: string;

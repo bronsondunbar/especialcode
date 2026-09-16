@@ -307,6 +307,9 @@ export const make = Effect.gen(function* () {
           })),
         ),
 
+    listAccountChangeRequests: (input) =>
+      cli.listAccountPullRequests(input).pipe(Effect.mapError(fail("listAccountChangeRequests"))),
+
     listChangeRequestStats: (input) =>
       cli
         .listPullRequestStats({
@@ -401,6 +404,8 @@ export const make = Effect.gen(function* () {
         Effect.mapError(fail("getChangeRequest")),
         Effect.map(([detail, repository, viewerAccess]): ProviderChangeRequestDetail => ({
           ...detail.pullRequest,
+          reviewRequestLogins:
+            viewerAccess.reviewRequestLogins ?? detail.pullRequest.reviewRequestLogins,
           checks: withWorkflowApprovals(
             detail.pullRequest.checks,
             detail.workflowApprovals.runs,
@@ -409,7 +414,9 @@ export const make = Effect.gen(function* () {
           ...(detail.workflowApprovals.unavailable
             ? {}
             : { workflowApprovalsRequired: detail.workflowApprovals.runs.length }),
-          reviewers: detail.pullRequest.reviewRequestLogins.map((login) => ({
+          reviewers: (
+            viewerAccess.reviewRequestLogins ?? detail.pullRequest.reviewRequestLogins
+          ).map((login) => ({
             login,
             name: null,
             avatarUrl: null,

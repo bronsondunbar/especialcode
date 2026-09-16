@@ -1,3 +1,4 @@
+import { WorkTaskUpdateButton } from "../work/WorkTaskUpdateButton";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
 import { runtimeModeConfig, runtimeModeOptions } from "./runtimeModeConfig";
 import { useRightPanelStore } from "~/rightPanelStore";
@@ -1443,7 +1444,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activeThreadEnvironmentId: _activeThreadEnvironmentId,
     activeThread,
     promptHistoryMessages,
-    isServerThread: _isServerThread,
+    isServerThread,
     isLocalDraftThread: _isLocalDraftThread,
     forceExpandedOnMobile,
     projectSelectionRequired,
@@ -6741,6 +6742,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   }
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
+                  {isServerThread && activeThreadId && (
+                    <WorkTaskUpdateButton
+                      key={`${environmentId}:${activeThreadId}`}
+                      environmentId={environmentId}
+                      threadId={activeThreadId}
+                    />
+                  )}
                   {showComposerAttachAction ? (
                     <>
                       <input
