@@ -157,6 +157,7 @@ interface HarnessOptions {
   readonly branchPullRequest?: GitManager["Service"]["branchPullRequest"];
   readonly pullRequestSummary?: PullRequestService["Service"]["summary"];
   readonly existingWorktreePaths?: ReadonlyArray<string>;
+  readonly missingProjectPaths?: ReadonlyArray<string>;
   readonly onDispatch?: (
     command: AutoSettleCommand,
   ) => Effect.Effect<void, OrchestrationCommandInvariantError>;
@@ -264,7 +265,12 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
     Layer.succeed(ServerActivation, Deferred.await(activation)),
     Layer.succeed(Crypto.Crypto, testCrypto),
     FileSystem.layerNoop({
-      exists: (path) => Effect.succeed(options.existingWorktreePaths?.includes(path) ?? false),
+      exists: (path) =>
+        Effect.succeed(
+          (options.existingWorktreePaths?.includes(path) ?? false) ||
+            (options.snapshot.projects.some((project) => project.workspaceRoot === path) &&
+              !options.missingProjectPaths?.includes(path)),
+        ),
     }),
   );
 
@@ -1197,6 +1203,53 @@ describe("ThreadSettlementReactor", () => {
               ThreadId.make("linked-one"),
               ThreadId.make("linked-two"),
             ]),
+          );
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
+  it.effect("skips missing checkouts and resumes discovery when the project returns", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const missingProjectPaths = ["/workspace/project-root"];
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot(
+            [
+              makeThread("missing-checkout", {
+                branch: "feature/missing",
+                worktreePath: "/deleted/worktree",
+                latestUserMessageAt: "2026-08-27T00:00:00.000Z",
+              }),
+              makeThread("retained-worktree", {
+                branch: "feature/live",
+                worktreePath: "/workspace/live-worktree",
+                latestUserMessageAt: "2026-08-27T00:00:00.000Z",
+              }),
+            ],
+            [makeProject(PROJECT_ID, "/workspace/project-root")],
+          ),
+          missingProjectPaths,
+          existingWorktreePaths: ["/workspace/live-worktree"],
+        });
+        yield* Effect.gen(function* () {
+          const reactor = yield* ThreadSettlementReactor.ThreadSettlementReactor;
+          yield* startHarness(reactor, fixture.activation, fixture.snapshotReads);
+          assert.deepStrictEqual(yield* Ref.get(fixture.branchCalls), [
+            { cwd: "/workspace/live-worktree", branch: "feature/live" },
+          ]);
+          assert.deepStrictEqual(yield* Ref.get(fixture.commands), []);
+
+          missingProjectPaths.length = 0;
+          yield* TestClock.adjust("1 minute");
+          yield* Queue.take(fixture.snapshotReads);
+          yield* reactor.drain;
+          assert.deepStrictEqual(
+            (yield* Ref.get(fixture.branchCalls)).filter(
+              (call) => call.branch === "feature/missing",
+            ),
+            [{ cwd: "/workspace/project-root", branch: "feature/missing" }],
           );
         }).pipe(Effect.provide(fixture.layer));
       }),

@@ -35,8 +35,8 @@ Never use the live `~/.t3/userdata` for development. See the
 
 | Feature       | Configuration                                                                                                                                                       |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GitHub        | Authenticate `gh` on the environment, then track repositories in Work. See [GitHub integration](github-integration.md).                                             |
-| Slack         | Configure the three server variables below, authorize a workspace, then select channels. See [Slack integration](slack-integration.md).                             |
+| GitHub        | Connect an account in Work to create tasks from assigned issues automatically; use `gh` for PR operations. See [GitHub integration](github-integration.md).         |
+| Slack         | Configure the three server variables below, then connect a workspace to import direct mentions automatically. See [Slack integration](slack-integration.md).        |
 | Notifications | Set environment categories/delivery preferences and enable native alerts on each device. See [Notifications](notifications.md).                                     |
 | Automation    | Save rules, review conditions/actions, then enable them. Execution also requires explicit trust, allowlists and an approved plan. See [Automations](automation.md). |
 
@@ -91,7 +91,7 @@ manager.
 | Module                                                            | Responsibility and reused boundary                                                                  |
 | ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | [Work services](../apps/server/src/workItems/)                    | WorkItems, bounded dashboard/activity queries, plan approvals, execution and PR review coordination |
-| [GitHub integration](../apps/server/src/integrations/github/)     | Issue snapshots and imports through the existing GitHub CLI and shared rate-limit service           |
+| [GitHub integration](../apps/server/src/integrations/github/)     | Assigned-issue task imports and optional repository sync, using shared rate limits                  |
 | [Slack integration](../apps/server/src/integrations/slack/)       | Read-only Slack API operations and OAuth; credentials use the existing server secret store          |
 | [Notifications](../apps/server/src/notifications/)                | Normalize committed work/agent/integration events into a durable inbox                              |
 | [Automations](../apps/server/src/automations/)                    | Match future events, record runs and invoke the existing Work services                              |
@@ -129,8 +129,7 @@ execution worktrees.
 
 **Integration:** fetch bounded source data, validate it, then commit snapshots and any Work
 changes. GitHub batch refreshes commit task updates and their cursor together; missing issues
-retain their cache while other issues can refresh. Slack imports preserve their task snapshot
-and local edits. Failures expose cached data and recovery actions instead of deleting tasks.
+retain their cache while other issues can refresh. Slack refreshes preserve local edits and archived task context. Failures expose cached data and recovery actions instead of deleting tasks.
 External text is context, not authorization.
 
 **Agent:** generate a restricted plan, review/edit it, approve its current revision, then
@@ -157,8 +156,9 @@ it does not replay interrupted actions.
 
 - Work and its shared read state are environment-local, not a cross-environment team workspace.
   There is no per-user assignment/permission system separate from existing environment scopes.
-- GitHub issue and Slack mention ingestion is requested manually. There is no webhook receiver,
-  scheduled issue poller or full Slack archive. PR feedback uses T3's existing refresh paths.
+- Connected GitHub accounts poll assigned issues every five minutes while the environment runs.
+  Connected Slack workspaces also poll direct mentions automatically. Repository-wide GitHub
+  sync and optional Slack channel browsing are manual. There is no webhook receiver or full Slack archive. PR feedback uses T3's existing refresh paths.
 - Protected planning currently supports Claude, OpenCode and Antigravity. Context is bounded,
   uses the current checkout rather than the requested execution branch, and can omit files.
   Filename exclusions are not a general secret scanner; review repository content before sharing.

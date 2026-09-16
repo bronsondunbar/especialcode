@@ -1863,6 +1863,31 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               }).pipe(Effect.flip);
               assert.equal(denied._tag, "EnvironmentAuthorizationError");
               assert.equal((yield* client[WS_METHODS.workItemsGet]({ id })).archivedAt, null);
+              const deniedDelete = yield* client[WS_METHODS.workItemsDelete]({
+                id,
+                expectedRevision: 1,
+                commandId: "denied-delete",
+              }).pipe(Effect.flip);
+              assert.equal(deniedDelete._tag, "EnvironmentAuthorizationError");
+            }),
+          ),
+        );
+        yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            Effect.gen(function* () {
+              const archived = yield* client[WS_METHODS.workItemsMutate]({
+                kind: "archive",
+                id,
+                expectedRevision: 1,
+                commandId: "archive-delete-rpc",
+                archived: true,
+              });
+              const deletion = { id, expectedRevision: archived.revision, commandId: "delete-rpc" };
+              yield* client[WS_METHODS.workItemsDelete](deletion);
+              yield* client[WS_METHODS.workItemsDelete](deletion);
+              assert.equal((yield* client[WS_METHODS.workItemsList]({ archived: true })).total, 0);
+              const missing = yield* client[WS_METHODS.workItemsGet]({ id }).pipe(Effect.flip);
+              assert.equal(missing._tag, "WorkItemError");
             }),
           ),
         );
@@ -1902,6 +1927,14 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               );
               assert.equal(list.repositories[0]?.repository, "example/repo");
               assert.equal((yield* client[WS_METHODS.githubIssuesList]({})).repositories.length, 1);
+              for (const input of [
+                { kind: "connect", token: "not-a-token" },
+                { kind: "disconnect" },
+                { kind: "sync" },
+              ] as const) {
+                const denied = yield* client[WS_METHODS.githubAccount](input).pipe(Effect.flip);
+                assert.equal(denied._tag, "EnvironmentAuthorizationError");
+              }
               for (const kind of ["sync", "untrack", "import", "refresh"] as const) {
                 const denied = yield* client[WS_METHODS.githubIssuesMutate]({
                   ...repo,

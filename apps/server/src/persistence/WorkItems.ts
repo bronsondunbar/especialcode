@@ -126,8 +126,64 @@ export const makeWorkItemRepository = Effect.gen(function* () {
       project_id: string | null;
     }>`SELECT project_id FROM work_items WHERE parent_id=${id}`;
   });
+  const deletedReceipt = Effect.fn("WorkItemRepository.deletedReceipt")(function* (
+    id: string,
+    commandId: string,
+  ) {
+    return yield* sql<{
+      id: string;
+      revision: number;
+      command_id: string;
+    }>`SELECT * FROM deleted_work_items WHERE id=${id} OR command_id=${commandId}`;
+  });
+  const isDeleted = Effect.fn("WorkItemRepository.isDeleted")(function* (id: string) {
+    return (yield* sql`SELECT id FROM deleted_work_items WHERE id=${id}`).length > 0;
+  });
+  const isResourceDeleted = Effect.fn("WorkItemRepository.isResourceDeleted")(function* (
+    resource: WorkItemExternalResource,
+  ) {
+    return (
+      (yield* sql`SELECT source FROM deleted_work_item_resources WHERE source=${resource.source} AND namespace=${resource.namespace} AND external_id=${resource.externalId}`)
+        .length > 0
+    );
+  });
+  const remove = Effect.fn("WorkItemRepository.remove")(function* (
+    item: WorkItem,
+    commandId: string,
+  ) {
+    yield* sql`INSERT INTO deleted_work_items(id,revision,command_id) VALUES (${item.id},${item.revision},${commandId})`;
+    for (const resource of item.resources) {
+      yield* sql`INSERT OR IGNORE INTO deleted_work_item_resources(source,namespace,external_id) VALUES (${resource.source},${resource.namespace},${resource.externalId})`;
+    }
+    // These records belong to Work. Agent threads, worktrees and external issues remain intact.
+    for (const table of [
+      "work_item_resources",
+      "work_item_commands",
+      "work_item_events",
+      "work_item_activity",
+      "work_item_plans",
+      "work_item_plan_history",
+      "work_item_reviews",
+      "work_item_pull_requests",
+      "work_item_executions",
+    ]) {
+      yield* sql`DELETE FROM ${sql(table)} WHERE work_item_id=${item.id}`;
+    }
+    yield* sql`DELETE FROM work_items WHERE id=${item.id}`;
+  });
+  const childItems = Effect.fn("WorkItemRepository.childItems")(function* (id: string) {
+    const rows = yield* sql<{
+      record_json: string;
+    }>`SELECT record_json FROM work_items WHERE parent_id=${id}`;
+    return yield* Effect.forEach(rows, (row) => decodeItem(row.record_json));
+  });
   return {
     get,
+    deletedReceipt,
+    isDeleted,
+    isResourceDeleted,
+    childItems,
+    remove,
     list,
     save,
     receipt,

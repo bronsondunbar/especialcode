@@ -1,3 +1,4 @@
+import { useEnvironments } from "../../state/environments";
 import { ExternalSyncStatus } from "./ExternalSyncStatus";
 import { useDeferredValue, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
@@ -69,6 +70,10 @@ export function SlackPanel({
   const projects = useAtomValue(environmentProjects.projectsAtom).filter(
     (p) => p.environmentId === environmentId,
   );
+  const { environments } = useEnvironments();
+  const automaticTasks =
+    environments.find((environment) => environment.environmentId === environmentId)?.serverConfig
+      ?.environment.capabilities.slackAutoTasks === true;
   const [workspaceId, setWorkspaceId] = useState("");
   const [ignored, setIgnored] = useState(false);
   const [offset, setOffset] = useState(0);
@@ -212,10 +217,13 @@ export function SlackPanel({
   }
   return (
     <ScrollView className="flex-1" contentContainerClassName="gap-4 p-4 pb-10">
-      <Text className="text-xl font-semibold text-foreground">Slack Inbox</Text>
+      <Text className="text-xl font-semibold text-foreground">Slack</Text>
       <Text className="text-sm text-muted-foreground">
-        Everyone who can read this environment can read its Slack inbox. Sync finds mentions in
-        configured channels from the last seven days. Older messages can be added by link.
+        {automaticTasks
+          ? "Connect a workspace to turn direct mentions of you into Work tasks automatically. The first sync imports the last seven days, then refreshes every five minutes. No channel selection or automation rules are required. Tasks start in Inbox and never start agents automatically."
+          : "Choose channels, sync mentions and create Work tasks from their messages."}{" "}
+        Tasks and source messages are shared with everyone who can read this environment, including
+        mentions from private conversations your account can access.
       </Text>
       {!data?.configured && (
         <Text className="text-sm text-muted-foreground">
@@ -254,12 +262,26 @@ export function SlackPanel({
             }}
           />
           <ControlPill
-            label="Disconnect and clear inbox"
+            label="Disconnect workspace"
             disabled={pending}
             onPress={() => void configure({ kind: "disconnect", workspaceId: workspace.id })}
           />
+          {automaticTasks && (
+            <View className="gap-2 rounded-xl border border-border p-3">
+              <Text className="font-medium">Direct mentions → Work tasks</Text>
+              <ExternalSyncStatus value={workspace} />
+              <Text className="text-sm text-muted-foreground">
+                Sync continues while this environment is running, even when this panel is closed.
+                Disconnecting stops imports and keeps your Work tasks.
+              </Text>
+            </View>
+          )}
           <View className="gap-3 rounded-xl border border-border p-3">
-            <Text className="font-medium text-foreground">Channel and task defaults</Text>
+            <Text className="font-medium text-foreground">
+              {automaticTasks
+                ? "Optional channel defaults and manual imports"
+                : "Channel and task defaults"}
+            </Text>
             <ControlPill
               label="Choose channels"
               disabled={pending}

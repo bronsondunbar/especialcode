@@ -1,3 +1,4 @@
+import * as TestClock from "effect/testing/TestClock";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -199,5 +200,79 @@ it.effect("retries a read transport failure once but never retries OAuth rotatio
     assert.strictEqual(attempts, 2);
     yield* adapter.refresh("id", "secret", "refresh").pipe(Effect.flip);
     assert.strictEqual(attempts, 3);
+  }),
+);
+
+it.effect(
+  "discovers direct mentions across channels and thread replies with complete pagination",
+  () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(Date.parse("2026-01-01T00:00:00Z"));
+      const { requests, adapter } = harness((request) => {
+        const page = Number(form(request).get("page"));
+        return Response.json({
+          ok: true,
+          messages: {
+            matches:
+              page === 1
+                ? [
+                    {
+                      channel: { id: "CONE", name: "one" },
+                      ts: "1760000000.000001",
+                      text: "<@U123> help",
+                    },
+                    {
+                      channel: { id: "CTWO" },
+                      ts: "1760000000.000002",
+                      text: "<@U999> other user",
+                    },
+                  ]
+                : [
+                    {
+                      channel: { id: "CTWO" },
+                      ts: "1760000000.000003",
+                      text: "<@U123> reply",
+                      thread_ts: "1760000000.000000",
+                    },
+                  ],
+            paging: { page, pages: 2 },
+          },
+        });
+      });
+      const slack = yield* adapter;
+      const result = yield* slack.mentions("token", "T123", "U123", "2020-01-01T00:00:00Z");
+      assert.strictEqual(result.length, 2);
+      assert.strictEqual(result[1]?.thread_ts, "1760000000.000000");
+      assert.strictEqual(form(requests[0]!).get("query"), "<@U123> after:2019-12-31");
+      assert.strictEqual(form(requests[0]!).get("team_id"), "T123");
+      assert.strictEqual(form(requests[1]!).get("page"), "2");
+    }),
+);
+
+it.effect("does not return partial mentions when a later page fails or repeats", () =>
+  Effect.gen(function* () {
+    let repeated = false;
+    const { adapter } = harness((request) => {
+      const page = Number(form(request).get("page"));
+      return page === 2 && !repeated
+        ? new Response("", { status: 500 })
+        : Response.json({
+            ok: true,
+            messages: {
+              matches: [{ channel: { id: "CONE" }, ts: "1760000000.000001", text: "<@U123> help" }],
+              paging: { page: 1, pages: 2 },
+            },
+          });
+    });
+    const slack = yield* adapter;
+    assert.strictEqual(
+      (yield* slack.mentions("token", "T123", "U123", null).pipe(Effect.flip)).code,
+      "remote",
+    );
+    repeated = true;
+    assert.strictEqual(
+      (yield* slack.mentions("token", "T123", "U123", null).pipe(Effect.flip)).code,
+      "remote",
+    );
   }),
 );

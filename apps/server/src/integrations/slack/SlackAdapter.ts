@@ -27,7 +27,10 @@ const decodeSearch = Schema.decodeUnknownEffect(
   Schema.Struct({
     messages: Schema.Struct({
       matches: Schema.Array(
-        Schema.Struct({ ...RawMessage.fields, channel: Schema.Struct({ id: SlackId }) }),
+        Schema.Struct({
+          ...RawMessage.fields,
+          channel: Schema.Struct({ id: SlackId, name: Schema.optionalKey(Schema.String) }),
+        }),
       ),
       paging: Schema.Struct({ page: Schema.Number, pages: Schema.Number }),
     }),
@@ -232,6 +235,58 @@ export const make = Effect.gen(function* () {
       hasMore: result.messages.paging.page < result.messages.paging.pages,
     };
   });
+  const mentions = Effect.fn("SlackAdapter.mentions")(function* (
+    token: string,
+    workspaceId: string,
+    userId: string,
+    since: string | null,
+  ) {
+    const now = yield* DateTime.now;
+    const recent = DateTime.subtract(now, { days: 7 });
+    const start = since
+      ? DateTime.makeUnsafe(
+          Math.min(
+            DateTime.toEpochMillis(recent),
+            DateTime.toEpochMillis(DateTime.subtract(DateTime.makeUnsafe(since), { days: 1 })),
+          ),
+        )
+      : recent;
+    const after = DateTime.formatIsoDate(start);
+    const snapshots: Array<typeof RawMessage.Type & { channel: { id: string; name?: string } }> =
+      [];
+    let bytes = 0;
+    const seen = new Set<string>();
+    for (let page = 1; page <= 100; page++) {
+      const result = yield* request("search.messages", token, workspaceId, {
+        query: `<@${userId}> after:${after}`,
+        team_id: workspaceId,
+        sort: "timestamp",
+        sort_dir: "asc",
+        count: "100",
+        page: String(page),
+        highlight: "false",
+      }).pipe(Effect.flatMap(decodeSearch), Effect.mapError(apiError));
+      if (result.messages.paging.page !== page)
+        return yield* fail(
+          "remote",
+          "Slack repeated a search page. The saved sync cursor was retained.",
+        );
+      for (const message of result.messages.matches) {
+        bytes += (message.text ?? "").length * 4;
+        if (bytes > 32 * 1024 * 1024)
+          return yield* fail("remote", "Slack mentions exceed the 32 MB sync limit.");
+        const key = `${message.channel.id}/${message.ts}`;
+        if (seen.has(key) || !(message.text ?? "").includes(`<@${userId}>`)) continue;
+        seen.add(key);
+        snapshots.push(message);
+      }
+      if (page >= result.messages.paging.pages) return snapshots;
+    }
+    return yield* fail(
+      "remote",
+      "Slack mentions exceed 10,000 results. The saved sync cursor was retained.",
+    );
+  });
   const thread = Effect.fn("SlackAdapter.thread")(function* (
     token: string,
     workspaceId: string,
@@ -278,7 +333,18 @@ export const make = Effect.gen(function* () {
   });
   const revoke = (token: string, workspaceId: string) =>
     request("auth.revoke", token, workspaceId, {}).pipe(Effect.asVoid);
-  return { oauth, refresh, channels, channel, search, thread, selected, permalink, revoke };
+  return {
+    oauth,
+    refresh,
+    channels,
+    channel,
+    search,
+    mentions,
+    thread,
+    selected,
+    permalink,
+    revoke,
+  };
 });
 export type RawSlackMessage = typeof RawMessage.Type;
 export function messageSnapshot(config: SlackChannelConfig, raw: RawSlackMessage): SlackMessage {

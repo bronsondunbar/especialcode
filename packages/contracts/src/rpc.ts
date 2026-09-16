@@ -33,6 +33,7 @@ import {
 import { WorkExecutionMutation, WorkExecutionState, WorkExecutionError } from "./workExecutions.ts";
 import { WorkPlanMutation, WorkPlanState, WorkPlanError } from "./workPlans.ts";
 import {
+  GitHubAccountInput,
   GitHubIssueReference,
   GitHubIssueDetail,
   GitHubIssuesListInput,
@@ -50,6 +51,7 @@ import {
   WorkItemListInput,
   WorkItemListResult,
   WorkItemMutation,
+  WorkItemDeleteInput,
 } from "./workItems.ts";
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
@@ -340,6 +342,7 @@ export const WS_METHODS = {
   slackSubscribe: "slack.subscribe",
   slackMutate: "slack.mutate",
   slackAdmin: "slack.admin",
+  githubAccount: "githubIssues.account",
   githubIssuesList: "githubIssues.list",
   githubIssuesGet: "githubIssues.get",
   githubIssuesMutate: "githubIssues.mutate",
@@ -347,6 +350,7 @@ export const WS_METHODS = {
   workItemsList: "workItems.list",
   workItemsGet: "workItems.get",
   workItemsMutate: "workItems.mutate",
+  workItemsDelete: "workItems.delete",
   workItemsSubscribe: "workItems.subscribe",
   // Project registry methods
   projectsList: "projects.list",
@@ -1550,6 +1554,11 @@ export const WsRpcGroup = RpcGroup.make(
     success: SlackAdminResult,
     error: Schema.Union([SlackError, EnvironmentAuthorizationError]),
   }),
+  Rpc.make(WS_METHODS.githubAccount, {
+    payload: GitHubAccountInput,
+    success: Schema.Void,
+    error: Schema.Union([GitHubIssuesError, EnvironmentAuthorizationError]),
+  }),
   Rpc.make(WS_METHODS.githubIssuesList, {
     payload: GitHubIssuesListInput,
     success: GitHubIssuesListResult,
@@ -1579,6 +1588,11 @@ export const WsRpcGroup = RpcGroup.make(
   Rpc.make(WS_METHODS.workItemsGet, {
     payload: Schema.Struct({ id: WorkItemId }),
     success: WorkItem,
+    error: Schema.Union([WorkItemError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.workItemsDelete, {
+    payload: WorkItemDeleteInput,
+    success: Schema.Void,
     error: Schema.Union([WorkItemError, EnvironmentAuthorizationError]),
   }),
   Rpc.make(WS_METHODS.workItemsMutate, {

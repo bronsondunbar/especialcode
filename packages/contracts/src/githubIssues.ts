@@ -19,6 +19,7 @@ export type GitHubRepositoryKey = typeof GitHubRepositoryKey.Type;
 export const GitHubTrackedRepository = Schema.Struct({
   ...ExternalSyncMetadata.fields,
   ...GitHubRepositoryKey.fields,
+  discoveredByAccount: Schema.optionalKey(Schema.Boolean),
   projectId: Schema.NullOr(ProjectId),
   importLabels: Schema.Array(Text).check(Schema.isMaxLength(50)),
   lastSyncedAt: Schema.NullOr(Schema.String),
@@ -75,7 +76,27 @@ export const GitHubIssuesListInput = Schema.Struct({
   limit: Schema.optionalKey(PositiveInt.check(Schema.isLessThanOrEqualTo(100))),
 });
 export type GitHubIssuesListInput = typeof GitHubIssuesListInput.Type;
+export const GitHubAccount = Schema.Struct({
+  ...ExternalSyncMetadata.fields,
+  id: PositiveInt,
+  login: Text,
+});
+export type GitHubAccount = typeof GitHubAccount.Type;
+export const GitHubAccountInput = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("connect"),
+    token: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(1000),
+      Schema.isPattern(/^\S+$/),
+    ),
+  }),
+  Schema.Struct({ kind: Schema.Literal("disconnect") }),
+  Schema.Struct({ kind: Schema.Literal("sync") }),
+]);
+export type GitHubAccountInput = typeof GitHubAccountInput.Type;
 export const GitHubIssuesListResult = Schema.Struct({
+  account: Schema.optionalKey(Schema.NullOr(GitHubAccount)),
   repositories: Schema.Array(GitHubTrackedRepository),
   items: Schema.Array(GitHubIssueSummary),
   total: NonNegativeInt,

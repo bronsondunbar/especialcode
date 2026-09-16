@@ -2,6 +2,7 @@ import * as NodeCrypto from "node:crypto";
 import { makeEventRepository } from "../../automations/AutomationEvents.ts";
 import { makeWorkActivityRepository, activityId } from "../../persistence/WorkActivity.ts";
 import {
+  GitHubAccount,
   GitHubIssue,
   GitHubIssueSummary,
   GitHubIssueReference,
@@ -23,6 +24,8 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { WorkItemService } from "../../workItems/WorkItemService.ts";
 import { GitHubIssuesAdapter } from "./GitHubIssuesAdapter.ts";
 
+const encodeAccount = Schema.encodeEffect(Schema.fromJsonString(GitHubAccount));
+const decodeAccount = Schema.decodeUnknownEffect(Schema.fromJsonString(GitHubAccount));
 const encodeRepo = Schema.encodeSync(Schema.fromJsonString(GitHubTrackedRepository));
 const decodeRepo = Schema.decodeUnknownEffect(Schema.fromJsonString(GitHubTrackedRepository));
 const encodeIssue = Schema.encodeEffect(Schema.fromJsonString(GitHubIssue));
@@ -119,6 +122,7 @@ export const make = Effect.gen(function* () {
     repo: GitHubTrackedRepository,
     issue: GitHubIssue,
   ) {
+    if (yield* workItems.isResourceDeleted(resource(issue))) return;
     const existing = yield* workItems.findByResource(resource(issue));
     if (existing) return;
     const id = WorkItemId.make(`github:${repositoryNamespace(repo)}:${issue.externalId}`);
@@ -326,7 +330,10 @@ export const make = Effect.gen(function* () {
         const previous = repos.find(
           (repo) => repositoryNamespace(repo) === repositoryNamespace(input),
         );
-        if (!previous && repos.length >= 50)
+        if (
+          (!previous || previous.discoveredByAccount) &&
+          repos.filter((repo) => !repo.discoveredByAccount).length >= 50
+        )
           return yield* fail("invalid", "You can track up to 50 repositories per environment.");
         if (input.projectId) {
           const projects =
@@ -335,6 +342,7 @@ export const make = Effect.gen(function* () {
         }
         yield* saveRepo({
           ...previous,
+          discoveredByAccount: false,
           host: input.host,
           repository: input.repository,
           projectId: input.projectId,
@@ -426,12 +434,66 @@ export const make = Effect.gen(function* () {
     Effect.ensuring(SubscriptionRef.update(changes, (n) => n + 1)),
     Effect.ensuring(workItems.notifyChange),
   );
+  const ingestAssigned = Effect.fn("GitHubIssuesService.ingestAssigned")(
+    function* (account: GitHubAccount, snapshots: ReadonlyArray<GitHubIssue>) {
+      const existingRepos = new Map(
+        (yield* repositories()).map((repo) => [repositoryNamespace(repo), repo]),
+      );
+      for (const snapshot of snapshots) {
+        if (
+          snapshot.host !== "github.com" ||
+          snapshot.state !== "open" ||
+          !snapshot.assignees.some((login) => login.toLowerCase() === account.login.toLowerCase())
+        )
+          continue;
+        const namespace = repositoryNamespace(snapshot);
+        let repo = existingRepos.get(namespace);
+        if (!repo) {
+          repo = {
+            host: snapshot.host,
+            repository: snapshot.repository,
+            projectId: null,
+            importLabels: [],
+            lastSyncedAt: null,
+            syncError: null,
+            discoveredByAccount: true,
+          };
+          yield* saveRepo(repo);
+          existingRepos.set(namespace, repo);
+        }
+        const previous = yield* cached(snapshot);
+        const issue: GitHubIssue =
+          previous && previous.updatedAt > snapshot.updatedAt
+            ? previous
+            : {
+                ...snapshot,
+                comments: previous?.comments ?? [],
+                commentsFetchedAt: previous?.commentsFetchedAt ?? null,
+                lastSyncedAt: account.lastSyncedAt ?? null,
+                ...(account.lastAttemptAt ? { lastAttemptAt: account.lastAttemptAt } : {}),
+                syncStatus: "ready",
+                syncError: null,
+              };
+        if (previous) yield* workItems.refreshExternal(resource(issue), previous, issue);
+        yield* saveIssue(issue);
+        yield* importIssue(repo, issue);
+      }
+      const record = yield* encodeAccount(account);
+      yield* sql`INSERT INTO github_account(id,record_json) VALUES(1,${record}) ON CONFLICT(id) DO UPDATE SET record_json=excluded.record_json`;
+    },
+    sql.withTransaction,
+    lock.withPermits(1),
+    Effect.mapError(storageError),
+    Effect.ensuring(SubscriptionRef.update(changes, (n) => n + 1)),
+    Effect.ensuring(workItems.notifyChange),
+  );
   const list = Effect.fn("GitHubIssuesService.list")(
     function* (raw: GitHubIssuesListInput) {
       const input = yield* decodeList(raw).pipe(
         Effect.mapError(() => fail("invalid", "Invalid issue filters.")),
       );
-      const conditions = [sql`1=1`];
+      // Account-discovered issues become Work tasks directly; the repository browser stays opt-in.
+      const conditions = [sql`coalesce(json_extract(t.record_json, '$.discoveredByAccount'),0)=0`];
       if (input.repository) conditions.push(sql`i.namespace=${input.repository.toLowerCase()}`);
       if (input.projectId)
         conditions.push(sql`json_extract(t.record_json, '$.projectId')=${input.projectId}`);
@@ -457,7 +519,16 @@ export const make = Effect.gen(function* () {
         total: number;
       }>`SELECT count(*) AS total FROM github_issues i JOIN github_tracked_repositories t ON t.namespace=i.namespace WHERE ${where}`;
       const items = yield* Effect.forEach(rows, (row) => decodeSummary(row.record_json));
-      return { repositories: yield* repositories(), items, total: counts[0]?.total ?? 0 };
+      const accounts = yield* sql<{
+        record_json: string;
+      }>`SELECT record_json FROM github_account WHERE id=1`;
+      const account = accounts[0] ? yield* decodeAccount(accounts[0].record_json) : null;
+      return {
+        account,
+        repositories: (yield* repositories()).filter((repo) => !repo.discoveredByAccount),
+        items,
+        total: counts[0]?.total ?? 0,
+      };
     },
     sql.withTransaction,
     Effect.mapError(storageError),
@@ -471,6 +542,8 @@ export const make = Effect.gen(function* () {
     return { ...issue, ...(yield* imported(issue)) };
   }, Effect.mapError(storageError));
   return {
+    ingestAssigned,
+    notifyChange: SubscriptionRef.update(changes, (n) => n + 1),
     mutate,
     list,
     get,

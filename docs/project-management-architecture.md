@@ -59,8 +59,9 @@ available; consumers use saved identities and cursors rather than notification t
 ## Reuse GitHub and PR infrastructure
 
 [GitHubIssuesAdapter](../apps/server/src/integrations/github/GitHubIssuesAdapter.ts) adds issue
-endpoints to the existing GitHubCli/SourceControlRateLimit path. It does not duplicate login,
-Git transport, PR discovery or merge logic. [WorkPullRequestService](../apps/server/src/workItems/WorkPullRequestService.ts)
+endpoints with a shared SourceControlRateLimit budget. Connected account tokens use direct
+GitHub REST requests; the CLI remains the fallback for unconnected hosts. Account credentials
+are scoped to issue reads and do not change Git transport, PR discovery or merge identity. [WorkPullRequestService](../apps/server/src/workItems/WorkPullRequestService.ts)
 and [WorkReviewService](../apps/server/src/workItems/WorkReviewService.ts) delegate publication
 and feedback reads to GitWorkflowService and PullRequestService.
 

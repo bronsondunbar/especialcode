@@ -1,3 +1,5 @@
+import * as Fiber from "effect/Fiber";
+import * as Stream from "effect/Stream";
 import { assert, it } from "@effect/vitest";
 import { SlackListResult, WorkItemId, type SlackChannelConfig } from "@t3tools/contracts";
 import * as ConfigProvider from "effect/ConfigProvider";
@@ -49,6 +51,8 @@ const setup = Effect.gen(function* () {
     getOrCreateRandom: () => Effect.die("unused"),
   });
   const state = {
+    workspaceId: "T123",
+    failWorkspace: null as string | null,
     exchanges: 0,
     rotations: 0,
     reads: 0,
@@ -66,7 +70,7 @@ const setup = Effect.gen(function* () {
       Effect.sync(() => {
         state.exchanges++;
         return {
-          team: { id: "T123", name: "Example" },
+          team: { id: state.workspaceId, name: "Example" },
           authed_user: {
             id: "U123",
             access_token: "private-access-token",
@@ -88,6 +92,13 @@ const setup = Effect.gen(function* () {
       }),
     channels: () => Effect.succeed({ channels: [{ id: "C123", name: "dev" }], nextCursor: "" }),
     channel: (_token, _workspace, id) => Effect.succeed({ id, name: "dev" }),
+    mentions: (_token, id) =>
+      Effect.gen(function* () {
+        state.reads++;
+        if (state.failRead && (!state.failWorkspace || state.failWorkspace === id))
+          return yield* fail("rate_limit", "Retry later");
+        return state.messages;
+      }),
     search: () =>
       Effect.gen(function* () {
         state.reads++;
@@ -405,4 +416,188 @@ it.effect("rolls back a malformed sync batch and keeps the last successful snaps
     assert.strictEqual(inbox.channels[0]?.lastSyncedAt, before.lastSyncedAt);
     assert.strictEqual((yield* c.work.get(task.id)).revision, task.revision);
   }).pipe(Effect.provide(SqlitePersistenceMemory)),
+);
+
+it.effect(
+  "automatically creates Work tasks from direct mentions across unconfigured channels and preserves local work",
+  () =>
+    Effect.gen(function* () {
+      const { service, work, state, build } = yield* setup;
+      yield* service.admin({ kind: "untrack", workspaceId: "T123", channelId: "C123" });
+      state.messages = [
+        { ts: "1760000000.000001", channel: { id: "CONE" }, text: "<@U123> first request" },
+        {
+          ts: "1760000000.000002",
+          channel: { id: "CTWO" },
+          text: "<@U123> reply request",
+          thread_ts: "1760000000.000000",
+        },
+        { ts: "1760000000.000003", channel: { id: "CONE" }, text: "<!channel> announcement" },
+        { ts: "1760000000.000004", channel: { id: "CONE" }, text: "<@U999> someone else" },
+      ];
+      yield* service.syncWorkspace("T123");
+      const queue = yield* work.list({});
+      assert.strictEqual(queue.total, 2);
+      assert.isTrue(
+        queue.items.every((item) => item.status === "inbox" && item.agentThreadId === null),
+      );
+      assert.deepEqual((yield* service.list({})).channels, []);
+      assert.strictEqual((yield* service.list({})).total, 0);
+      const item = queue.items[0]!;
+      yield* work.mutate({
+        kind: "update",
+        id: item.id,
+        commandId: "local-slack-edit",
+        expectedRevision: item.revision,
+        patch: { title: "Local title", body: "Local instructions" },
+      });
+      state.messages = state.messages.map((message) => ({
+        ...message,
+        text: `${message.text} updated`,
+      }));
+      const restarted = yield* build;
+      yield* restarted.syncWorkspace("T123");
+      assert.strictEqual((yield* work.list({})).total, 2);
+      assert.strictEqual((yield* work.get(item.id)).title, "Local title");
+      assert.strictEqual((yield* work.get(item.id)).body, "Local instructions");
+      const fresh = yield* work.get(item.id);
+      yield* work.mutate({
+        kind: "archive",
+        id: item.id,
+        commandId: "archive-slack-task",
+        expectedRevision: fresh.revision,
+        archived: true,
+      });
+      yield* restarted.syncWorkspace("T123");
+      assert.isNotNull((yield* work.get(item.id)).archivedAt);
+      const archived = yield* work.get(item.id);
+      yield* work.deleteArchived({
+        id: item.id,
+        expectedRevision: archived.revision,
+        commandId: "delete-slack-task",
+      });
+      yield* restarted.syncWorkspace("T123");
+      assert.strictEqual((yield* work.list({})).total, 1);
+      assert.strictEqual((yield* work.list({ archived: true })).total, 0);
+      assert.strictEqual((yield* work.get(item.id).pipe(Effect.flip)).code, "not_found");
+    }).pipe(Effect.provide(SqlitePersistenceMemory)),
+);
+
+it.effect(
+  "retains the last successful cursor and rolls back task batches when automatic sync fails",
+  () =>
+    Effect.gen(function* () {
+      const { service, work, state } = yield* setup;
+      yield* service.syncWorkspace("T123");
+      const before = (yield* service.list({})).workspaces[0]!;
+      state.failRead = true;
+      assert.strictEqual(
+        (yield* service.syncWorkspace("T123").pipe(Effect.flip)).code,
+        "rate_limit",
+      );
+      assert.strictEqual(
+        (yield* service.list({})).workspaces[0]?.lastSyncedAt,
+        before.lastSyncedAt,
+      );
+      assert.strictEqual((yield* service.list({})).workspaces[0]?.syncStatus, "error");
+      state.failRead = false;
+      state.messages = [
+        { ts: "1760000000.000002", channel: { id: "CNEW" }, text: "<@U123> valid" },
+        { ts: "invalid", channel: { id: "CNEW" }, text: "<@U123> invalid" },
+      ];
+      yield* service.syncWorkspace("T123").pipe(Effect.flip);
+      assert.strictEqual((yield* work.list({})).total, 1);
+      assert.strictEqual(
+        (yield* service.list({})).workspaces[0]?.lastSyncedAt,
+        before.lastSyncedAt,
+      );
+    }).pipe(Effect.provide(SqlitePersistenceMemory)),
+);
+
+it.effect("keeps ignored messages out of automatic task imports", () =>
+  Effect.gen(function* () {
+    const { service, work } = yield* setup;
+    yield* service.mutate({ kind: "sync", ...config });
+    yield* service.mutate({ kind: "ignore", ...reference, ignored: true });
+    yield* service.syncWorkspace("T123");
+    assert.strictEqual((yield* work.list({})).total, 0);
+    yield* service.mutate({ kind: "ignore", ...reference, ignored: false });
+    yield* service.syncWorkspace("T123");
+    assert.strictEqual((yield* work.list({})).total, 1);
+    yield* service.mutate(importInput);
+    assert.strictEqual((yield* work.list({})).total, 1);
+  }).pipe(Effect.provide(SqlitePersistenceMemory)),
+);
+
+it.effect(
+  "starts after connection, polls every five minutes and stops after disconnect without automation rules",
+  () =>
+    Effect.gen(function* () {
+      const { service, work, state, connect } = yield* setup;
+      yield* service.admin({ kind: "disconnect", workspaceId: "T123" });
+      const worker = yield* service.start();
+      const first = yield* work.changes.pipe(
+        Stream.mapEffect(() => work.list({})),
+        Stream.filter((queue) => queue.total === 1),
+        Stream.runHead,
+        Effect.forkScoped,
+      );
+      yield* connect;
+      yield* Fiber.join(first);
+      yield* worker.drain;
+      assert.strictEqual((yield* service.list({})).workspaces[0]?.syncStatus, "ready");
+      state.messages.push({
+        ts: "1760000000.000005",
+        text: "<@U123> next",
+        channel: { id: "CNEW" },
+      });
+      const second = yield* work.changes.pipe(
+        Stream.mapEffect(() => work.list({})),
+        Stream.filter((queue) => queue.total === 2),
+        Stream.runHead,
+        Effect.forkScoped,
+      );
+      yield* TestClock.adjust("5 minutes");
+      yield* Fiber.join(second);
+      yield* worker.drain;
+      yield* service.admin({ kind: "disconnect", workspaceId: "T123" });
+      const reads = state.reads;
+      state.messages.push({
+        ts: "1760000000.000006",
+        text: "<@U123> disconnected",
+        channel: { id: "CNEW" },
+      });
+      yield* TestClock.adjust("5 minutes");
+      yield* worker.drain;
+      assert.strictEqual(state.reads, reads);
+      assert.strictEqual((yield* work.list({})).total, 2);
+    }).pipe(Effect.scoped, Effect.provide(SqlitePersistenceMemory)),
+);
+
+it.effect("continues automatic imports in other workspaces when one loses access", () =>
+  Effect.gen(function* () {
+    const { service, work, state, connect } = yield* setup;
+    state.workspaceId = "T456";
+    yield* connect;
+    state.failRead = true;
+    state.failWorkspace = "T123";
+    const completed = yield* work.changes.pipe(
+      Stream.mapEffect(() => work.list({})),
+      Stream.filter((queue) => queue.total === 1),
+      Stream.runHead,
+      Effect.forkScoped,
+    );
+    const worker = yield* service.start();
+    yield* Fiber.join(completed);
+    yield* worker.drain;
+    const workspaces = (yield* service.list({})).workspaces;
+    assert.strictEqual(
+      workspaces.find((workspace) => workspace.id === "T123")?.syncStatus,
+      "error",
+    );
+    assert.strictEqual(
+      workspaces.find((workspace) => workspace.id === "T456")?.syncStatus,
+      "ready",
+    );
+  }).pipe(Effect.scoped, Effect.provide(SqlitePersistenceMemory)),
 );

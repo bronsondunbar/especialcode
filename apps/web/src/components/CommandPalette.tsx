@@ -1844,7 +1844,7 @@ function OpenCommandPaletteDialog(props: {
     title: "Open work queue",
     icon: <SettingsIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
-      await navigate({ to: "/work" });
+      await navigate({ to: "/work", search: { tab: "queue" } });
     },
   });
 

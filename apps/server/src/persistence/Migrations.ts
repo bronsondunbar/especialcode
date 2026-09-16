@@ -1,3 +1,5 @@
+import Migration0066 from "./Migrations/066_DeletedWorkItems.ts";
+import Migration0065 from "./Migrations/065_GitHubAccount.ts";
 import Migration0063 from "./Migrations/063_AutonomousWork.ts";
 import Migration0064 from "./Migrations/064_WorkDashboard.ts";
 import Migration0062 from "./Migrations/062_WorkAutomations.ts";
@@ -152,6 +154,8 @@ const migrationEntries = [
   [62, "WorkAutomations", Migration0062],
   [63, "AutonomousWork", Migration0063],
   [64, "WorkDashboard", Migration0064],
+  [65, "GitHubAccount", Migration0065],
+  [66, "DeletedWorkItems", Migration0066],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

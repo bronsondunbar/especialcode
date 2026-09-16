@@ -1,3 +1,6 @@
+import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/unstable/http";
+import * as Option from "effect/Option";
+import { ServerSecretStore } from "../../auth/ServerSecretStore.ts";
 import { assert, it, afterEach, vi } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -28,7 +31,12 @@ const output = (value: unknown) => ({
   stderrTruncated: false,
 });
 const execute = vi.fn<GitHubCli.GitHubCli["Service"]["execute"]>();
-const layer = Layer.mergeAll(Layer.mock(GitHubCli.GitHubCli)({ execute }), RateLimit.layer);
+const layer = Layer.mergeAll(
+  Layer.mock(GitHubCli.GitHubCli)({ execute }),
+  RateLimit.layer,
+  FetchHttpClient.layer,
+  Layer.mock(ServerSecretStore)({ get: () => Effect.succeed(Option.none()) }),
+);
 afterEach(() => execute.mockReset());
 
 it.effect(
@@ -135,4 +143,87 @@ it.effect(
       assert.strictEqual((yield* adapter.list(repo, null).pipe(Effect.flip)).code, "remote");
       assert.strictEqual((yield* adapter.list(repo, null).pipe(Effect.flip)).code, "remote");
     }).pipe(Effect.provide(layer)),
+);
+
+it.effect(
+  "discovers assigned issues across organizations, paginates and excludes PRs without gh",
+  () =>
+    Effect.gen(function* () {
+      const requests: string[] = [];
+      const http = HttpClient.make((request) =>
+        Effect.sync(() => {
+          requests.push(request.url);
+          assert.strictEqual(request.headers.authorization, "Bearer test-token");
+          const issue = { ...rawIssue, repository: { full_name: "other-org/private" } };
+          const body = request.url.endsWith("/user")
+            ? { id: 123, login: "alice" }
+            : new URL(request.url).searchParams.get("page") === "1"
+              ? Array.from({ length: 100 }, (_, i) => ({
+                  ...issue,
+                  id: i + 1,
+                  number: i + 1,
+                  ...(i === 0 ? { pull_request: {} } : {}),
+                }))
+              : [{ ...issue, id: 901 }];
+          return HttpClientResponse.fromWeb(request, Response.json(body));
+        }),
+      );
+      const adapter = yield* make.pipe(Effect.provideService(HttpClient.HttpClient, http));
+      assert.deepEqual(yield* adapter.viewer("test-token"), { id: 123, login: "alice" });
+      const { issues } = yield* adapter.assigned("test-token");
+      assert.strictEqual(issues.length, 100);
+      assert.strictEqual(issues[0]?.repository, "other-org/private");
+      assert.include(requests[1], "/issues?filter=assigned&state=open");
+      assert.include(requests[2], "page=2");
+      assert.strictEqual(execute.mock.calls.length, 0);
+    }).pipe(Effect.provide(layer)),
+);
+
+it.effect("rejects incomplete account discovery and keeps credentials out of API errors", () =>
+  Effect.gen(function* () {
+    let calls = 0;
+    const http = HttpClient.make((request) =>
+      Effect.sync(() => {
+        calls++;
+        return HttpClientResponse.fromWeb(
+          request,
+          calls === 1
+            ? Response.json([{ ...rawIssue }])
+            : new Response("test-token sensitive", { status: 401 }),
+        );
+      }),
+    );
+    const adapter = yield* make.pipe(Effect.provideService(HttpClient.HttpClient, http));
+    assert.strictEqual((yield* adapter.assigned("test-token").pipe(Effect.flip)).code, "remote");
+    const error = yield* adapter.viewer("test-token").pipe(Effect.flip);
+    assert.strictEqual(error.code, "authentication");
+    assert.notInclude(error.message, "test-token");
+  }).pipe(Effect.provide(layer)),
+);
+
+it.effect("uses saved tokens for issue reads and reports organizations omitted by SSO", () =>
+  Effect.gen(function* () {
+    const http = HttpClient.make((request) =>
+      Effect.sync(() => {
+        assert.strictEqual(request.headers.authorization, "Bearer saved-token");
+        return HttpClientResponse.fromWeb(
+          request,
+          Response.json([{ ...rawIssue, repository: { full_name: "owner/repo" } }], {
+            headers: { "x-github-sso": "partial-results; organizations=123" },
+          }),
+        );
+      }),
+    );
+    const adapter = yield* make.pipe(
+      Effect.provideService(HttpClient.HttpClient, http),
+      Effect.provide(
+        Layer.mock(ServerSecretStore)({
+          get: () => Effect.succeed(Option.some(new TextEncoder().encode("saved-token"))),
+        }),
+      ),
+    );
+    assert.strictEqual((yield* adapter.list(repo, null)).length, 1);
+    assert.strictEqual((yield* adapter.assigned("saved-token")).partialAccess, true);
+    assert.strictEqual(execute.mock.calls.length, 0);
+  }).pipe(Effect.provide(layer)),
 );

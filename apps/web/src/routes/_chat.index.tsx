@@ -1,6 +1,6 @@
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, Navigate } from "@tanstack/react-router";
 import { LinkIcon, PlusIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -26,16 +26,31 @@ function ChatIndexRouteView() {
   const { authGateState } = Route.useRouteContext();
   const { environments, isReady } = useEnvironments();
 
+  if (!isReady) return null;
   if (authGateState.status === "hosted-static") {
-    if (!isReady) return null;
     if (environments.length === 0) return <HostedStaticOnboardingState />;
   }
 
+  if (
+    environments.some((environment) => environment.serverConfig?.environment.capabilities.workItems)
+  ) {
+    return <Navigate to="/work" search={{ tab: "dashboard" }} replace />;
+  }
+  if (
+    environments.some(
+      (environment) =>
+        !environment.serverConfig &&
+        (environment.connection.phase === "connecting" ||
+          environment.connection.phase === "connected"),
+    )
+  ) {
+    return null;
+  }
   return <IndexDraftLanding />;
 }
 
 /**
- * Landing on the index route drops straight into a draft thread for the most
+ * Environments without Work support fall back to a draft thread for the most
  * recently active project, so the first screen is a prompt instead of a dead
  * end. Falls back to an add-project hero when no project exists yet.
  */

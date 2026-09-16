@@ -7,6 +7,7 @@ export const SlackId = Schema.String.check(Schema.isPattern(/^[A-Z][A-Z0-9]{1,80
 export const SlackTimestamp = Schema.String.check(Schema.isPattern(/^\d{10,16}\.\d{6}$/));
 const Text = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(500));
 export const SlackWorkspace = Schema.Struct({
+  ...ExternalSyncMetadata.fields,
   id: SlackId,
   name: Text,
   userId: SlackId,
@@ -22,6 +23,7 @@ export const SlackChannelConfig = Schema.Struct({
   projectId: Schema.NullOr(ProjectId),
   repository: Schema.NullOr(Text),
   channelMentions: Schema.Boolean,
+  discoveredAutomatically: Schema.optionalKey(Schema.Boolean),
 });
 export type SlackChannelConfig = typeof SlackChannelConfig.Type;
 export const SlackReference = Schema.Struct({
@@ -78,6 +80,7 @@ export const SlackAdminInput = Schema.Union([
       "lastAttemptAt",
       "syncStatus",
       "syncError",
+      "discoveredAutomatically",
     ]),
   }),
   Schema.Struct({ kind: Schema.Literal("untrack"), workspaceId: SlackId, channelId: SlackId }),

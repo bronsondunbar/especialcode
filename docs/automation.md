@@ -1,7 +1,11 @@
 # Automations
 
+Connecting GitHub or Slack already creates Work tasks automatically from assigned issues or
+direct mentions. No automation rule is needed for these imports. Use the rules below only
+for additional actions after work arrives.
+
 Open **Settings → Automation settings** on web or desktop, or **Settings → Automations**
-on mobile. You can also open **Work → Automations**. Select the environment, create a rule,
+on mobile. Select the environment, create a rule,
 choose a trigger and optional conditions, then add actions in order. New rules are disabled;
 enable a saved rule to respond to future events. Rules run on the server while it is online,
 even when clients are closed. GitHub and Slack triggers arrive when those sources are synced.

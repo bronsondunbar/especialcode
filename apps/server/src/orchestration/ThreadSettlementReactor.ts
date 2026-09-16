@@ -161,6 +161,14 @@ export const make = Effect.gen(function* () {
           const worktreeExists =
             thread.worktreePath !== null &&
             (yield* fileSystem.exists(thread.worktreePath).pipe(Effect.orElseSucceed(() => false)));
+          // A retained thread can outlive both its worktree and project checkout.
+          if (
+            !worktreeExists &&
+            !(yield* fileSystem
+              .exists(project.workspaceRoot)
+              .pipe(Effect.orElseSucceed(() => false)))
+          )
+            return;
           lookupCwdByThreadId.set(
             thread.id,
             worktreeExists && thread.worktreePath !== null
@@ -252,7 +260,7 @@ export const make = Effect.gen(function* () {
       if (thread.branch === null) return null;
       const cwd = lookupCwdByThreadId.get(thread.id);
       if (cwd === undefined) {
-        return yield* Effect.die(new Error("thread project not found"));
+        return null;
       }
       return yield* git.branchPullRequest({ cwd, branch: thread.branch });
     });

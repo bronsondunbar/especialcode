@@ -1,15 +1,30 @@
 # Slack integration
 
-Open **Work → Slack** on web, desktop or mobile. An environment administrator connects
-an account, chooses a workspace, and saves the channels to share. Each channel can have a
-project and repository for new tasks. Everyone with read access to the environment can
-read its cached Slack messages, including messages from private channels you select.
-Only connect accounts and channels that should be shared with those people.
+Open **Work → Slack** on web, desktop or mobile and connect your workspace. Direct
+mentions of your connected account become Work tasks automatically, without channel
+selection or automation rules. The initial sync covers the last seven days. Sync continues
+every five minutes while the environment runs, including when clients are closed, and
+catches up from the last successful sync after downtime.
 
-**Sync mentions** reads one configured channel at a time and finds direct mentions of the
-connected account from the last seven days, including replies in threads. Enable channel
-mentions to include `@channel`, `@here` and `@everyone`. **Older results** continues through
-that window. Sync runs when requested; it is not a background workspace archive.
+Tasks start in **Inbox**, retain the source message and thread link, and do not start agents
+just because the workspace is connected. Repeated mentions sync into the same task. Local
+edits, task status and archived work are preserved. Ignored messages are not imported.
+Search covers conversations accessible to the connected account, including private
+conversations and thread replies. Everyone with read access to the environment can see
+the resulting tasks and their source context. Slack search visibility, retention and search
+filters can limit results; see [Slack search behavior](https://docs.slack.dev/reference/methods/search.messages/).
+
+The workspace shows the last sync and any failure. Failed batches retain the last successful
+cursor and retry automatically. Other connected workspaces continue syncing. Disconnecting
+stops automatic imports and preserves existing Work tasks.
+
+## Optional channel defaults and manual imports
+
+Configure a channel only if you want default project/repository values for its new tasks,
+or want to browse other messages manually. **Sync mentions** reads that channel from the
+last seven days. Enable channel mentions to include `@channel`, `@here` and `@everyone`
+in the manual inbox; these broad mentions do not automatically create tasks. **Older results**
+continues through that window.
 Paste a Slack message link to add a specific message from a configured channel, including
 older messages. Choose the link's workspace first. **Refresh thread** loads context, and
 **More replies** extends the bounded preview. Open Slack for very long threads.
@@ -22,7 +37,8 @@ message again opens its existing task. **Attach to existing task** adds the sour
 to a task you choose without replacing its content. Search by title to find older tasks.
 **Ignore** hides a message; use the ignored view and **Restore** to bring it back.
 
-Stopping channel tracking clears its inbox cache. Disconnecting a workspace removes its
+Stopping channel tracking clears its manual inbox cache and defaults; direct mentions still
+create tasks while the workspace is connected. Disconnecting a workspace removes its
 local credentials and cached channels/messages and attempts to revoke Slack access.
 Imported tasks and their source references remain. Slack mentions and imports follow the
 Slack categories in Notification preferences. No action sends a message to Slack.

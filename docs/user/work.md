@@ -7,9 +7,9 @@ The [project-management overview](../project-management.md) covers setup and the
 
 See [Dashboard](../project-management.md#dashboard).
 
-## GitHub Issues
+## GitHub
 
-See [GitHub Issues](../github-integration.md).
+See [GitHub](../github-integration.md).
 
 ## Plan with an agent
 

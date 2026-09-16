@@ -1,6 +1,31 @@
 # GitHub integration
 
-## Configure access
+## Turn assigned issues into Work tasks
+
+Open **Work → GitHub** (on mobile: **Settings → Work → GitHub**) and
+choose **Connect GitHub account** with a personal access token. Connection management
+requires administrator access to the selected environment. For private repositories across
+organizations, create a classic token with `repo` scope and authorize each organization’s
+SSO when required ([GitHub token guidance](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)). Organization policies and the token’s repository access determine which
+issues GitHub makes visible; organization membership alone does not grant token access.
+
+Open issues assigned to your account become Work tasks immediately, then sync every five
+minutes while the environment is running. Newly accessible repositories are discovered
+automatically. No automation rules are required. Tasks start in **Inbox** with their description and original GitHub link;
+you do not need to track repositories or import issues individually. Pull requests are excluded.
+Repeated syncs reuse the same task. Local edits and Work status are preserved, and agents
+are not started automatically. Issues no longer assigned to you, closed issues, and existing
+tasks remain in Work; assignment sync does not archive or complete them.
+
+**Sync assigned issues** refreshes immediately. **Update token** renews credentials for the
+same account. **Disconnect account** removes the token and stops automatic imports, keeping
+existing tasks. Disconnect before switching accounts. Tokens are stored on the selected
+environment, never returned to clients. Tasks are shared with clients that can access that
+environment. This connection does not require the GitHub CLI or change Git/PR credentials.
+
+GitHub documents the scope of [assigned-issue discovery](https://docs.github.com/en/rest/issues/issues#list-issues-assigned-to-the-authenticated-user).
+
+## Configure Git and pull request access
 
 Install and authenticate the GitHub CLI on the machine running the selected T3 environment:
 
@@ -10,41 +35,10 @@ gh auth status
 ```
 
 For GitHub Enterprise, authenticate the selected host with `gh auth login --hostname HOST`.
-The account needs access to each tracked repository. PR publication additionally needs the
+The account needs access to the repository. PR publication additionally needs the
 normal Git push and GitHub PR permissions. Authentication on a client laptop does not grant
 access to a remote environment. This integration adds no required GitHub environment variable;
-it reuses T3's existing GitHub CLI configuration. Keep credentials on the server.
-
-## Import and sync issues
-
-Open **Work → GitHub Issues** on web/desktop, or **Settings → Work → GitHub Issues**
-on mobile. Track an `owner/repository`, optionally choose a project for new imports,
-and press **Sync**. GitHub access uses the GitHub CLI account on the selected
-environment. If prompted, run `gh auth login` on that machine. GitHub Enterprise
-repositories can use their own host.
-
-Browse open issues, filter by repository, exact label or assignee username, and choose
-**Import to Work Queue**. To import an issue directly, select its repository and enter
-its issue number. Repeated imports reuse the same work item. Refresh details to read
-the description, milestone and comments, or open the original issue on GitHub.
-
-GitHub state and Work status are independent. Syncing a closed or reopened issue never
-moves its work item. Untouched titles and descriptions follow GitHub changes; local
-edits are preserved. Active and archived work retains its content. Comments always
-belong to the GitHub snapshot.
-
-To import matching issues during sync, configure one or more comma-separated labels.
-An open issue matching any selected label enters Inbox. These rules never start agents.
-Sync is manual; reloading the saved list does not contact GitHub.
-
-Untracking clears the repository's saved issue data and keeps imported work. Re-track
-and sync to restore the issue view. If access is lost or GitHub is rate limited, the
-last saved data remains available and the sync error explains how to retry. Missing or
-inaccessible imported issues are marked unavailable without deleting their tasks; other
-issues can still refresh. A partial sync identifies these gaps. Retry after restoring access.
-Trusted execution will not start from an unavailable issue or a failed repository sync. Large
-responses are bounded; a sync that exceeds a limit reports an error rather than
-silently marking incomplete data as current.
+Git and pull request operations reuse T3's GitHub CLI configuration. Keep credentials on the server.
 
 ## Create and review a pull request
 

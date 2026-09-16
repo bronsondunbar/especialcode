@@ -1,3 +1,5 @@
+import { ClearWorkQueueButton } from "./ClearWorkQueueButton";
+import { WorkTaskThreadButton } from "./WorkTaskThreadButton";
 import { WorkPlanPanel } from "./WorkPlanPanel";
 import { WorkActivityPanel } from "./WorkActivityPanel";
 import { Dialog, DialogPopup, DialogTitle } from "../ui/dialog";
@@ -57,6 +59,11 @@ function WorkDashboardPanel({
             Refresh
           </Button>
         </div>
+        <ClearWorkQueueButton
+          key={environmentId}
+          environmentId={environmentId}
+          onCleared={query.refresh}
+        />
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3" aria-label="Dashboard filters">
           <select
             aria-label="Filter by project"
@@ -253,6 +260,7 @@ function WorkDashboardPanel({
                       </p>
                     )}
                     <div className="flex flex-wrap gap-3 text-xs">
+                      <WorkTaskThreadButton environmentId={environmentId} id={item.id} />
                       <button className="hover:underline" onClick={() => onOpen(item.id)}>
                         Plan / execution
                       </button>

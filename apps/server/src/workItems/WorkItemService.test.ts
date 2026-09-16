@@ -382,3 +382,123 @@ it.effect(
       assert.equal((yield* service.list({ archived: true })).total, 1);
     }).pipe(Effect.provide(layer)),
 );
+
+it.effect(
+  "permanently deletes archived task records and history, detaches children and keeps source tombstones",
+  () =>
+    Effect.gen(function* () {
+      const service = yield* WorkItemService;
+      const sql = yield* SqlClient.SqlClient;
+      const resource = {
+        source: "github_issue" as const,
+        namespace: "github.com/org/repo",
+        externalId: "9",
+        url: "https://github.com/org/repo/issues/9",
+      };
+      const parent = yield* service.mutate({
+        ...create("deleted-parent"),
+        kind: "create",
+        source: "github_issue",
+        resource,
+        title: "Delete me",
+        fields: {},
+      });
+      const child = yield* service.mutate(
+        create("surviving-child", { parentWorkItemId: parent.id }),
+      );
+      const archived = yield* service.mutate({
+        kind: "archive",
+        id: parent.id,
+        commandId: "archive-parent",
+        expectedRevision: parent.revision,
+        archived: true,
+      });
+      for (const table of ["work_item_plans", "work_item_pull_requests"])
+        yield* sql`INSERT INTO ${sql(table)}(work_item_id,record_json) VALUES (${parent.id},'{}')`;
+      yield* sql`INSERT INTO work_item_plan_history(work_item_id,revision,record_json) VALUES (${parent.id},1,'{}')`;
+      yield* sql`INSERT INTO work_item_reviews(work_item_id,snapshot_json,sync_error) VALUES (${parent.id},'{}',NULL)`;
+      yield* sql`INSERT INTO work_item_executions(id,work_item_id,thread_id,status,record_json) VALUES ('run',${parent.id},'kept-thread','succeeded','{}')`;
+      yield* sql`INSERT INTO work_item_activity(id,work_item_id,occurred_at,record_json) VALUES ('activity',${parent.id},'now','{}')`;
+      const command = {
+        id: parent.id,
+        expectedRevision: archived.revision,
+        commandId: "delete-parent",
+      };
+      yield* service.deleteArchived(command);
+      yield* service.deleteArchived(command);
+      assert.strictEqual((yield* service.get(parent.id).pipe(Effect.flip)).code, "not_found");
+      assert.strictEqual((yield* service.list({ archived: true })).total, 0);
+      const surviving = yield* service.get(child.id);
+      assert.isNull(surviving.parentWorkItemId);
+      assert.strictEqual(surviving.revision, child.revision + 1);
+      for (const table of [
+        "work_item_plans",
+        "work_item_plan_history",
+        "work_item_pull_requests",
+        "work_item_reviews",
+        "work_item_executions",
+        "work_item_activity",
+        "work_item_events",
+        "work_item_commands",
+        "work_item_resources",
+      ])
+        assert.lengthOf(yield* sql`SELECT * FROM ${sql(table)} WHERE work_item_id=${parent.id}`, 0);
+      assert.isTrue(yield* service.isResourceDeleted(resource));
+      assert.strictEqual(
+        (yield* service.mutate(create("deleted-parent")).pipe(Effect.flip)).code,
+        "invalid",
+      );
+      assert.strictEqual(
+        (yield* service.deleteArchived({ ...command, expectedRevision: 1 }).pipe(Effect.flip)).code,
+        "conflict",
+      );
+    }).pipe(Effect.provide(layer)),
+);
+
+it.effect("rejects deletion of unarchived, restored or changed tasks", () =>
+  Effect.gen(function* () {
+    const service = yield* WorkItemService;
+    const item = yield* service.mutate(create("keep"));
+    assert.strictEqual(
+      (yield* service
+        .deleteArchived({
+          id: item.id,
+          commandId: "delete-active",
+          expectedRevision: item.revision,
+        })
+        .pipe(Effect.flip)).code,
+      "invalid",
+    );
+    const archived = yield* service.mutate({
+      kind: "archive",
+      id: item.id,
+      commandId: "archive-keep",
+      expectedRevision: item.revision,
+      archived: true,
+    });
+    assert.strictEqual(
+      (yield* service
+        .deleteArchived({ id: item.id, commandId: "delete-stale", expectedRevision: item.revision })
+        .pipe(Effect.flip)).code,
+      "conflict",
+    );
+    yield* service.mutate({
+      kind: "archive",
+      id: item.id,
+      commandId: "restore-keep",
+      expectedRevision: archived.revision,
+      archived: false,
+    });
+    assert.strictEqual(
+      (yield* service
+        .deleteArchived({
+          id: item.id,
+          commandId: "delete-restored",
+          expectedRevision: archived.revision,
+        })
+        .pipe(Effect.flip)).code,
+      "conflict",
+    );
+    assert.strictEqual((yield* service.list({})).total, 1);
+  }).pipe(Effect.provide(layer)),
+);

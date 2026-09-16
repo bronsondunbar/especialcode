@@ -211,7 +211,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
               label="Work"
               onClick={() => {
                 closeMobileSidebar();
-                void navigate({ to: "/work" });
+                void navigate({ to: "/work", search: { tab: "dashboard" } });
               }}
             />
           )}

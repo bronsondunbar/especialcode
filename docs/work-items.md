@@ -22,6 +22,36 @@ Changes appear on other connected clients. If an edit conflicts with a newer cha
 cancel the edit and open it again to load the latest version before saving. Full
 descriptions are retained even when the queue shows only a preview.
 
+Use **Clear work queue** in the dashboard or queue to archive tasks across every project
+and view in the selected environment. Confirm the task count before clearing; filters
+do not limit this action. Tasks planning, running or awaiting approval stay in the queue.
+Linked threads remain available, and tasks can be recovered through **Archived → Restore**.
+New GitHub and Slack tasks can still arrive after clearing.
+
+In **Archived**, choose **Clear archived tasks** to permanently delete archived tasks and
+their Work history across the environment. The confirmation shows the count; filters do not
+limit deletion. This cannot be undone. Linked threads, files and original GitHub/Slack content
+are kept. Existing subtasks are detached from deleted parents. Deleted sources will not be
+imported again automatically.
+
+## Start a thread from a task
+
+Choose **New thread** on a task in the dashboard or Work queue. Select a repository, agent
+and model, then edit the prompt prepared from the task description and source links.
+GitHub tasks suggest a matching local repository when available; you can change it.
+Choose a base branch and review the short, editable branch name suggested from the task title.
+The new branch gets its own worktree. Turn off new branch creation to use the current checkout.
+Repositories must already be added as projects in the selected environment.
+**Create thread** links the new thread to the task and opens its composer; press **Send**
+when ready to start the agent. The task keeps its current status. If it already had a
+linked thread, that previous thread remains available in its project.
+
+For tasks linked to GitHub issues or Slack messages, use **Discussion context** in **New thread**
+to fetch and include issue comments or thread replies. Preview the discussion, use **Load more
+replies** for longer Slack threads, or **Remove context** to leave it out. Long discussions are
+shortened with a notice. The combined prompt stays editable in the chat composer before you
+send it; loading context does not post to GitHub or Slack.
+
 ## Activity timeline
 
 Choose **Activity** on a Work queue item, or open its plan/execution details and scroll to

@@ -39,6 +39,9 @@ const setup = Effect.gen(function* () {
     return { ...found, commentsFetchedAt: "2026-01-02T00:00:00.000Z" };
   });
   const adapter = GitHubIssuesAdapter.of({
+    viewer: () => Effect.succeed({ id: 1, login: "alice" }),
+    assigned: () =>
+      Ref.get(issues).pipe(Effect.map((value) => ({ issues: [...value], partialAccess: false }))),
     list: Effect.fn(function* (_repo, since) {
       yield* Ref.update(cursors, (values) => [...values, since]);
       const error = yield* Ref.get(failure);

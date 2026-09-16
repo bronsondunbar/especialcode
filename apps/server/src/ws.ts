@@ -1,3 +1,4 @@
+import * as GitHubAccount from "./integrations/github/GitHubAccountService.ts";
 import * as WorkDashboard from "./workItems/WorkDashboardService.ts";
 import * as WorkAutomations from "./automations/WorkAutomationService.ts";
 import * as WorkActivity from "./workItems/WorkActivityService.ts";
@@ -666,6 +667,7 @@ const makeWsRpcLayer = (
       const workPullRequests = yield* WorkPullRequests.WorkPullRequestService;
       const workExecutions = yield* WorkExecutions.WorkExecutionService;
       const githubIssues = yield* GitHubIssues.GitHubIssuesService;
+      const githubAccount = yield* GitHubAccount.GitHubAccountService;
       const slack = yield* Slack.SlackService;
       const withPullRequestViewer = pullRequests.withRoutingCredential;
       const pullRequestSync = yield* PullRequestSyncReactor.PullRequestSyncReactor;
@@ -1665,6 +1667,8 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.slackMutate, slack.mutate(input)),
         [WS_METHODS.slackAdmin]: (input) =>
           observeRpcEffect(WS_METHODS.slackAdmin, slack.admin(input)),
+        [WS_METHODS.githubAccount]: (input) =>
+          observeRpcEffect(WS_METHODS.githubAccount, githubAccount.admin(input)),
         [WS_METHODS.githubIssuesList]: (input) =>
           observeRpcEffect(WS_METHODS.githubIssuesList, githubIssues.list(input)),
         [WS_METHODS.githubIssuesGet]: (input) =>
@@ -1710,6 +1714,8 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.workItemsList, workItems.list(input)),
         [WS_METHODS.workItemsGet]: (input) =>
           observeRpcEffect(WS_METHODS.workItemsGet, workItems.get(input.id)),
+        [WS_METHODS.workItemsDelete]: (input) =>
+          observeRpcEffect(WS_METHODS.workItemsDelete, workItems.deleteArchived(input)),
         [WS_METHODS.workItemsMutate]: (input) =>
           observeRpcEffect(WS_METHODS.workItemsMutate, workItems.mutate(input)),
         [WS_METHODS.workItemsSubscribe]: (input) =>
@@ -3562,6 +3568,11 @@ export const websocketRpcRouteLayer = Layer.unwrap(
       Effect.provideService(WorkItems.WorkItemService, workItems),
       Effect.provideService(GitHubIssuesAdapter.GitHubIssuesAdapter, githubAdapter),
     );
+    const githubAccount = yield* GitHubAccount.make.pipe(
+      Effect.provideService(GitHubIssues.GitHubIssuesService, githubIssues),
+      Effect.provideService(GitHubIssuesAdapter.GitHubIssuesAdapter, githubAdapter),
+    );
+    yield* githubAccount.start();
     const applicationEvents = yield* ApplicationEvents.make;
     const slackAdapter = yield* SlackAdapter.make;
     const slack = yield* Slack.make.pipe(
@@ -3569,6 +3580,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
       Effect.provideService(WorkItems.WorkItemService, workItems),
       Effect.provideService(ApplicationEvents.ApplicationEventService, applicationEvents),
     );
+    yield* slack.start();
     const notifications = yield* Notifications.make.pipe(
       Effect.provideService(ApplicationEvents.ApplicationEventService, applicationEvents),
       Effect.provideService(WorkItems.WorkItemService, workItems),
@@ -3657,6 +3669,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
                   Layer.succeed(WorkPullRequests.WorkPullRequestService, workPullRequests),
                 ),
                 Layer.provide(Layer.succeed(GitHubIssues.GitHubIssuesService, githubIssues)),
+                Layer.provide(Layer.succeed(GitHubAccount.GitHubAccountService, githubAccount)),
                 Layer.provide(Layer.succeed(Slack.SlackService, slack)),
                 Layer.provide(
                   SourceControlDiscovery.layer.pipe(

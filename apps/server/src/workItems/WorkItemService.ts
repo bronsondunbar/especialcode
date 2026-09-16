@@ -3,6 +3,7 @@ import {
   WorkItemError,
   WorkItemListInput,
   WorkItemMutation,
+  WorkItemDeleteInput,
   WORK_ITEM_MANUAL_STATUSES,
   type WorkItemExternalResource,
 } from "@t3tools/contracts";
@@ -16,6 +17,7 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import { makeWorkItemRepository } from "../persistence/WorkItems.ts";
 
 const decodeWorkItem = Schema.decodeUnknownEffect(WorkItem);
+const decodeDelete = Schema.decodeUnknownEffect(WorkItemDeleteInput);
 const decodeMutation = Schema.decodeUnknownEffect(WorkItemMutation);
 const decodeList = Schema.decodeUnknownEffect(WorkItemListInput);
 const isWorkItemError = Schema.is(WorkItemError);
@@ -93,6 +95,14 @@ export const make = Effect.gen(function* () {
       const request = canonicalJson(input);
       const result = yield* repository.transaction(
         Effect.gen(function* () {
+          if (yield* repository.isDeleted(input.id))
+            return yield* invalid("This task was permanently deleted.");
+          if (
+            (input.kind === "create" || input.kind === "attachResource") &&
+            input.resource &&
+            (yield* repository.isResourceDeleted(input.resource))
+          )
+            return yield* invalid("This source belonged to a permanently deleted task.");
           const receipt = yield* repository.receipt(input.commandId);
           if (receipt) {
             if (receipt.request !== request)
@@ -230,6 +240,63 @@ export const make = Effect.gen(function* () {
     Effect.mapError(mapError),
     Effect.uninterruptible,
   );
+  const deleteArchived = Effect.fn("WorkItemService.deleteArchived")(
+    function* (raw: WorkItemDeleteInput) {
+      const input = yield* decodeDelete(raw).pipe(
+        Effect.mapError(() => invalid("Invalid task deletion.")),
+      );
+      const changed = yield* repository.transaction(
+        Effect.gen(function* () {
+          const receipts = yield* repository.deletedReceipt(input.id, input.commandId);
+          if (receipts.length) {
+            if (
+              receipts.length === 1 &&
+              receipts[0]!.id === input.id &&
+              receipts[0]!.command_id === input.commandId &&
+              receipts[0]!.revision === input.expectedRevision
+            )
+              return false;
+            return yield* conflict(
+              "This task was already deleted or the command was used for another deletion.",
+            );
+          }
+          const item = yield* repository.get(input.id);
+          if (!item)
+            return yield* new WorkItemError({ code: "not_found", message: "Work item not found." });
+          if (item.revision !== input.expectedRevision)
+            return yield* conflict("This task changed. Refresh Archived before deleting it.");
+          if (
+            !item.archivedAt ||
+            ["planning", "awaiting_approval", "running"].includes(item.status)
+          )
+            return yield* invalid("Only archived, inactive tasks can be deleted.");
+          const now = DateTime.formatIso(yield* DateTime.now);
+          const children = yield* repository.childItems(item.id);
+          for (const [index, child] of children.entries()) {
+            const detached = {
+              ...child,
+              parentWorkItemId: null,
+              revision: child.revision + 1,
+              updatedAt: now,
+            };
+            yield* repository.save(detached);
+            yield* repository.record(
+              `${input.commandId}:detach:${index}`,
+              canonicalJson({ deletedParentId: item.id }),
+              "work_item.update",
+              detached,
+              encodeMetadata({ fields: ["parentWorkItemId"] }),
+            );
+          }
+          yield* repository.remove(item, input.commandId);
+          return true;
+        }),
+      );
+      if (changed) yield* SubscriptionRef.update(changes, (n) => n + 1);
+    },
+    Effect.mapError(mapError),
+    Effect.uninterruptible,
+  );
   const list = Effect.fn("WorkItemService.list")(function* (raw: WorkItemListInput) {
     const input = yield* decodeList(raw).pipe(
       Effect.mapError(() => invalid("Invalid work item filters.")),
@@ -303,6 +370,9 @@ export const make = Effect.gen(function* () {
   }, Effect.mapError(mapError));
   return {
     findByResource,
+    deleteArchived,
+    isResourceDeleted: (resource: WorkItemExternalResource) =>
+      repository.isResourceDeleted(resource).pipe(Effect.mapError(mapError)),
     refreshExternal,
     changes: SubscriptionRef.changes(changes),
     notifyChange: SubscriptionRef.update(changes, (n) => n + 1),

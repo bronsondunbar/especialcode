@@ -1,3 +1,5 @@
+import { ClearWorkQueueButton } from "./ClearWorkQueueButton";
+import { WorkTaskThreadButton } from "./WorkTaskThreadButton";
 import { WorkDashboardPanel } from "./WorkDashboardPanel";
 import { WorkAutomationPanel } from "./WorkAutomationPanel";
 import { WorkActivityPanel } from "./WorkActivityPanel";
@@ -78,15 +80,20 @@ export function AutomationSettingsRouteScreen() {
   return <WorkRouteScreen initialTab="automations" />;
 }
 
-export function WorkRouteScreen({ initialTab = "queue" }: { initialTab?: string }) {
+export function WorkRouteScreen({ initialTab = "dashboard" }: { initialTab?: string }) {
   const navigation = useNavigation();
   const { environments } = useEnvironments();
   const supported = environments.filter(
     (environment) => environment.serverConfig?.environment.capabilities.workItems === true,
   );
-  const [tab, setTab] = useState(initialTab);
+  const [requestedTab, setTab] = useState(initialTab);
   const [selected, setSelected] = useState<string>("");
   const environment = supported.find((item) => item.environmentId === selected) ?? supported[0];
+  const tab =
+    requestedTab === "dashboard" &&
+    !environment?.serverConfig?.environment.capabilities.workDashboard
+      ? "queue"
+      : requestedTab;
   return (
     <View className="flex-1 bg-background">
       {Platform.OS === "android" && (
@@ -107,15 +114,12 @@ export function WorkRouteScreen({ initialTab = "queue" }: { initialTab?: string 
           {environment.serverConfig?.environment.capabilities.workDashboard && (
             <ControlPill variant="pill" label="Dashboard" onPress={() => setTab("dashboard")} />
           )}
-          {environment.serverConfig?.environment.capabilities.workAutomations && (
-            <ControlPill variant="pill" label="Automations" onPress={() => setTab("automations")} />
-          )}
           <ControlPill label="Work Queue" onPress={() => setTab("queue")} />
           {environment.serverConfig?.environment.capabilities.slack && (
             <ControlPill label="Slack" onPress={() => setTab("slack")} />
           )}
           {environment.serverConfig?.environment.capabilities.githubIssues && (
-            <ControlPill label="GitHub Issues" onPress={() => setTab("github")} />
+            <ControlPill label="GitHub" onPress={() => setTab("github")} />
           )}
         </View>
       )}
@@ -282,17 +286,30 @@ function Queue({ environment }: { environment: EnvironmentPresentation }) {
           onClose={() => setPlanningId(null)}
         />
       )}
-      <View className="flex-row items-center justify-between">
+      <View className="flex-row flex-wrap items-center justify-between gap-3">
         <Text className="text-xl font-semibold">Your work queue</Text>
-        <ControlPill
-          variant="primary"
-          label="Create task"
-          disabled={pending}
-          onPress={() => {
-            setError(null);
-            setEditor({ id: WorkItemId.make(uuidv4()), item: null });
-          }}
-        />
+        <View className="flex-row flex-wrap items-start gap-2">
+          {(!archived || environment.serverConfig?.environment.capabilities.workItemsDelete) && (
+            <ClearWorkQueueButton
+              key={`${environmentId}:${archived}`}
+              archived={archived}
+              environmentId={environmentId}
+              onCleared={() => {
+                setOffset(0);
+                result.refresh();
+              }}
+            />
+          )}
+          <ControlPill
+            variant="primary"
+            label="Create task"
+            disabled={pending}
+            onPress={() => {
+              setError(null);
+              setEditor({ id: WorkItemId.make(uuidv4()), item: null });
+            }}
+          />
+        </View>
       </View>
       <View className="flex-row flex-wrap gap-2">
         {WORK_ITEM_VIEWS.map((tab) => (
@@ -420,6 +437,7 @@ function Queue({ environment }: { environment: EnvironmentPresentation }) {
       {result.data?.items.map((item) => (
         <View key={item.id} className="gap-3 rounded-xl border border-border p-4">
           <Text className="text-lg font-semibold">{item.title}</Text>
+          <WorkTaskThreadButton environmentId={environmentId} id={item.id} />
           {environment.serverConfig?.environment.capabilities.workActivity && (
             <ControlPill label="Activity" onPress={() => setActivityId(item.id)} />
           )}

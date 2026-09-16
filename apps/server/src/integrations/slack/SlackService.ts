@@ -1,3 +1,5 @@
+import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import { forkParked } from "../../serverActivation.ts";
 import * as NodeCrypto from "node:crypto";
 import {
   SlackAdminInput,
@@ -59,6 +61,14 @@ const scopes = [
   "channels:history",
   "groups:history",
 ];
+const taskContent = (config: SlackChannelConfig, message: SlackMessage) => {
+  const provenance = `Slack workspace: ${message.workspaceId}\nChannel: #${config.name} (${message.channelId})\nMessage: ${message.ts}\nThread: ${message.threadTs}\n${message.url ?? ""}`;
+  const context = message.replies.map((r) => `${r.author} (${r.ts}): ${r.text}`).join("\n\n");
+  return {
+    title: message.text.replace(/\s+/g, " ").trim().slice(0, 450) || "Slack message",
+    body: `${provenance}\n\n${message.text}\n\nThread context:\n${context}`.slice(0, 100_000),
+  };
+};
 export const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const adapter = yield* SlackAdapter;
@@ -77,6 +87,7 @@ export const make = Effect.gen(function* () {
     !!clientSecret &&
     /^https:\/\/[^?#]+\/api\/integrations\/slack\/callback$/.test(redirectUri);
   const changes = yield* SubscriptionRef.make(0);
+  const connections = yield* SubscriptionRef.make(0);
   const lock = yield* Semaphore.make(1);
   const pending = new Map<string, number>();
   const notify = SubscriptionRef.update(changes, (n) => n + 1);
@@ -162,6 +173,54 @@ export const make = Effect.gen(function* () {
       createdAt: DateTime.formatIso(yield* DateTime.now),
     });
   });
+  const importMessage = Effect.fn("SlackService.importMessage")(function* (
+    config: SlackChannelConfig,
+    message: SlackMessage,
+    input: Extract<SlackMutation, { kind: "import" }>,
+  ) {
+    if (yield* work.isResourceDeleted(slackResource(message))) return null;
+    const existing = yield* work.findByResource(slackResource(message));
+    if (existing) return existing.id;
+    const id = WorkItemId.make(`slack:${input.workspaceId}:${input.channelId}:${input.ts}`);
+    const detached = yield* work.get(id).pipe(
+      Effect.catchIf(
+        (e) => e.code === "not_found",
+        () => Effect.succeed(null),
+      ),
+    );
+    if (detached) {
+      yield* work
+        .mutate({
+          kind: "attachResource",
+          id,
+          expectedRevision: detached.revision,
+          commandId: `slack:reattach:${id}:${detached.revision}`,
+          resource: slackResource(message),
+        })
+        .pipe(Effect.mapError((e) => fail("invalid", e.message)));
+    } else {
+      const content = taskContent(config, message);
+      yield* work
+        .mutate({
+          kind: "create",
+          id,
+          commandId: `import:${id}`,
+          source: "slack",
+          title: content.title,
+          fields: {
+            body: content.body,
+            projectId: input.projectId,
+            repository: input.repository,
+            priority: input.priority,
+          },
+          resource: slackResource(message),
+        })
+        .pipe(Effect.mapError((e) => fail("invalid", e.message)));
+    }
+    yield* publish(message, "slack_message_imported", input.projectId, id);
+    yield* events.notifyChange;
+    return id;
+  });
   const completeOAuth = Effect.fn("SlackService.completeOAuth")(
     function* (state: string, code: string) {
       const expires = pending.get(state);
@@ -197,12 +256,14 @@ export const make = Effect.gen(function* () {
           : null,
       });
       const record: SlackWorkspace = {
+        ...previous,
         id: result.team.id,
         name: result.team.name,
         userId: result.authed_user.id,
         scopes: granted,
       };
       yield* sql`INSERT INTO slack_workspaces(id,record_json) VALUES (${record.id},${encodeWorkspace(record)}) ON CONFLICT(id) DO UPDATE SET record_json=excluded.record_json`;
+      yield* SubscriptionRef.update(connections, (n) => n + 1);
     },
     lock.withPermits(1),
     Effect.mapError(storageError),
@@ -265,9 +326,12 @@ export const make = Effect.gen(function* () {
       }
       const trackedChannels = yield* channels();
       if (
-        trackedChannels.length >= 50 &&
+        trackedChannels.filter((channel) => !channel.discoveredAutomatically).length >= 50 &&
         !trackedChannels.some(
-          (c) => c.workspaceId === input.workspaceId && c.channelId === input.channelId,
+          (c) =>
+            c.workspaceId === input.workspaceId &&
+            c.channelId === input.channelId &&
+            !c.discoveredAutomatically,
         )
       )
         return yield* fail("invalid", "You can configure up to 50 Slack channels.");
@@ -275,7 +339,12 @@ export const make = Effect.gen(function* () {
       const previous = trackedChannels.find(
         (c) => c.workspaceId === input.workspaceId && c.channelId === input.channelId,
       );
-      const record: SlackChannelConfig = { ...previous, ...input, name: channel.name };
+      const record: SlackChannelConfig = {
+        ...previous,
+        ...input,
+        discoveredAutomatically: false,
+        name: channel.name,
+      };
       yield* sql`INSERT INTO slack_channels(workspace_id,channel_id,record_json) VALUES (${input.workspaceId},${input.channelId},${encodeChannel(record)}) ON CONFLICT(workspace_id,channel_id) DO UPDATE SET record_json=excluded.record_json`;
       return empty;
     },
@@ -456,50 +525,7 @@ export const make = Effect.gen(function* () {
             .pipe(Effect.mapError((e) => fail("invalid", e.message)));
           return { ...empty, workItemId: item.id };
         }
-        const id = WorkItemId.make(`slack:${input.workspaceId}:${input.channelId}:${input.ts}`);
-        const detached = yield* work.get(id).pipe(
-          Effect.catchIf(
-            (e) => e.code === "not_found",
-            () => Effect.succeed(null),
-          ),
-        );
-        if (detached) {
-          yield* work
-            .mutate({
-              kind: "attachResource",
-              id,
-              expectedRevision: detached.revision,
-              commandId: `slack:reattach:${id}:${detached.revision}`,
-              resource: slackResource(message),
-            })
-            .pipe(Effect.mapError((e) => fail("invalid", e.message)));
-        } else {
-          const provenance = `Slack workspace: ${message.workspaceId}\nChannel: #${config.name} (${message.channelId})\nMessage: ${message.ts}\nThread: ${message.threadTs}\n${message.url ?? ""}`;
-          const context = message.replies
-            .map((r) => `${r.author} (${r.ts}): ${r.text}`)
-            .join("\n\n");
-          yield* work
-            .mutate({
-              kind: "create",
-              id,
-              commandId: `import:${id}`,
-              source: "slack",
-              title: message.text.replace(/\s+/g, " ").trim().slice(0, 450) || "Slack message",
-              fields: {
-                body: `${provenance}\n\n${message.text}\n\nThread context:\n${context}`.slice(
-                  0,
-                  100_000,
-                ),
-                projectId: input.projectId,
-                repository: input.repository,
-                priority: input.priority,
-              },
-              resource: slackResource(message),
-            })
-            .pipe(Effect.mapError((e) => fail("invalid", e.message)));
-        }
-        yield* publish(message, "slack_message_imported", input.projectId, id);
-        yield* events.notifyChange;
+        const id = yield* importMessage(config, message, input);
         return { ...empty, workItemId: id };
       });
       const result = yield* perform.pipe(Effect.result);
@@ -546,6 +572,131 @@ export const make = Effect.gen(function* () {
     Effect.mapError(storageError),
     Effect.ensuring(notify),
   );
+  const syncWorkspace = Effect.fn("SlackService.syncWorkspace")(
+    function* (id: string) {
+      const current = (yield* workspaces()).find((workspace) => workspace.id === id);
+      if (!current) return;
+      const at = DateTime.formatIso(yield* DateTime.now);
+      const result = yield* Effect.gen(function* () {
+        const access = yield* token(id);
+        const messages = yield* adapter.mentions(
+          access,
+          id,
+          current.userId,
+          current.lastSyncedAt ?? null,
+        );
+        yield* sql.withTransaction(
+          Effect.gen(function* () {
+            const configuredChannels = new Map(
+              (yield* channels())
+                .filter((channel) => channel.workspaceId === id)
+                .map((channel) => [channel.channelId, channel]),
+            );
+            for (const raw of messages) {
+              if (!(raw.text ?? "").includes(`<@${current.userId}>`)) continue;
+              let channel = configuredChannels.get(raw.channel.id);
+              if (!channel) {
+                channel = {
+                  workspaceId: id,
+                  channelId: raw.channel.id,
+                  name: raw.channel.name?.slice(0, 500) || raw.channel.id,
+                  projectId: null,
+                  repository: null,
+                  channelMentions: false,
+                  discoveredAutomatically: true,
+                };
+                yield* sql`INSERT INTO slack_channels(workspace_id,channel_id,record_json) VALUES (${id},${channel.channelId},${encodeChannel(channel)})`;
+                configuredChannels.set(channel.channelId, channel);
+              }
+              const snapshot = messageSnapshot(channel, raw);
+              const previous = yield* get(snapshot);
+              const message: SlackMessage = {
+                ...snapshot,
+                replies: previous?.replies ?? [],
+                nextCursor: previous?.nextCursor ?? "",
+                ignored: previous?.ignored ?? false,
+                url: snapshot.url ?? previous?.url ?? null,
+                lastSyncedAt: at,
+                lastAttemptAt: at,
+                syncStatus: "ready",
+                syncError: null,
+              };
+              if (previous)
+                yield* work.refreshExternal(
+                  slackResource(message),
+                  taskContent(channel, previous),
+                  taskContent(channel, message),
+                );
+              yield* saveMessage(message);
+              if (message.ignored) continue;
+              yield* importMessage(channel, message, {
+                kind: "import",
+                ...message,
+                projectId: channel.projectId,
+                repository: channel.repository,
+                priority: "medium",
+              });
+            }
+            const next: SlackWorkspace = {
+              ...current,
+              lastSyncedAt: at,
+              lastAttemptAt: at,
+              syncStatus: "ready",
+              syncError: null,
+            };
+            yield* sql`UPDATE slack_workspaces SET record_json=${encodeWorkspace(next)} WHERE id=${id}`;
+          }),
+        );
+      }).pipe(
+        Effect.timeout("2 minutes"),
+        Effect.catchTag("TimeoutError", () =>
+          Effect.fail(fail("unavailable", "Slack sync timed out. It will retry automatically.")),
+        ),
+        Effect.result,
+      );
+      if (result._tag === "Failure") {
+        const problem = storageError(result.failure);
+        const next: SlackWorkspace = {
+          ...current,
+          lastAttemptAt: at,
+          syncStatus: "error",
+          syncError: problem.message,
+        };
+        yield* sql`UPDATE slack_workspaces SET record_json=${encodeWorkspace(next)} WHERE id=${id}`;
+        return yield* problem;
+      }
+    },
+    lock.withPermits(1),
+    Effect.mapError(storageError),
+    Effect.ensuring(notify),
+    Effect.ensuring(work.notifyChange),
+    Effect.ensuring(events.notifyChange),
+  );
+  const syncAll = Effect.gen(function* () {
+    for (const workspace of yield* workspaces())
+      yield* syncWorkspace(workspace.id).pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("Automatic Slack task sync failed").pipe(
+            Effect.annotateLogs({ workspaceId: workspace.id, code: error.code }),
+          ),
+        ),
+      );
+  }).pipe(Effect.catch(() => Effect.logWarning("Could not read connected Slack workspaces.")));
+  const start = Effect.fn("SlackService.start")(function* () {
+    const worker = yield* makeDrainableWorker(() => syncAll);
+    // Connection receipts trigger the first sync; the timer continues without clients or automation rules.
+    yield* forkParked(
+      Stream.runForEach(SubscriptionRef.changes(connections), () => worker.enqueue(undefined)),
+    );
+    yield* forkParked(
+      Effect.sleep("5 minutes").pipe(
+        Effect.andThen(worker.enqueue(undefined)),
+        Effect.andThen(worker.drain),
+        Effect.forever,
+      ),
+    );
+    return { drain: worker.drain };
+  });
   const list = Effect.fn("SlackService.list")(
     function* (raw: SlackListInput) {
       const input = yield* decodeList(raw).pipe(
@@ -553,6 +704,7 @@ export const make = Effect.gen(function* () {
       );
       const where = sql.and([
         sql`ignored=${input.ignored ? 1 : 0}`,
+        sql`NOT EXISTS (SELECT 1 FROM slack_channels c WHERE c.workspace_id=slack_messages.workspace_id AND c.channel_id=slack_messages.channel_id AND json_extract(c.record_json, '$.discoveredAutomatically')=1)`,
         ...(input.workspaceId ? [sql`workspace_id=${input.workspaceId}`] : []),
       ]);
       const rows = yield* sql<{
@@ -576,7 +728,7 @@ export const make = Effect.gen(function* () {
       return {
         configured,
         workspaces: yield* workspaces(),
-        channels: yield* channels(),
+        channels: (yield* channels()).filter((channel) => !channel.discoveredAutomatically),
         items,
         total: count[0]?.total ?? 0,
       };
@@ -591,6 +743,8 @@ export const make = Effect.gen(function* () {
     return message;
   }, Effect.mapError(storageError));
   return {
+    start,
+    syncWorkspace,
     completeOAuth,
     read,
     admin,

@@ -1,7 +1,32 @@
+import { loadWorkTaskDiscussion } from "../operations/workTaskDiscussion.ts";
+export {
+  workTaskDiscussionSources,
+  workTaskPromptWithDiscussion,
+  type WorkTaskDiscussion,
+} from "../operations/workTaskDiscussion.ts";
+import { clearWorkQueue, previewClearWorkQueue } from "../operations/clearWorkQueue.ts";
+export {
+  clearWorkQueueDescription,
+  type WorkQueueClearPreview,
+} from "../operations/clearWorkQueue.ts";
+import {
+  startWorkTaskThread,
+  prepareWorkTaskBranch,
+  workTaskBranches,
+} from "../operations/workTaskThread.ts";
+export {
+  workTaskPrompt,
+  workTaskProjectId,
+  workTaskBranchName,
+  workTaskBranchError,
+  type WorkTaskThreadInput,
+} from "../operations/workTaskThread.ts";
 import { WS_METHODS } from "@t3tools/contracts";
 import type { Atom } from "effect/unstable/reactivity";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import {
+  createEnvironmentCommand,
+  createEnvironmentQueryAtomFamily,
   createEnvironmentRpcCommand,
   createEnvironmentRpcQueryAtomFamily,
   createEnvironmentRpcSubscriptionAtomFamily,
@@ -10,6 +35,31 @@ import {
 /** Shared environment-scoped transport, including reconnect/resubscribe behavior. */
 export function createWorkItemAtoms<R, E>(runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>) {
   return {
+    previewClear: createEnvironmentCommand(runtime, {
+      label: "work-items:preview-clear",
+      execute: previewClearWorkQueue,
+    }),
+    clear: createEnvironmentCommand(runtime, {
+      label: "work-items:clear",
+      execute: clearWorkQueue,
+    }),
+    discussion: createEnvironmentCommand(runtime, {
+      label: "work-items:discussion",
+      execute: loadWorkTaskDiscussion,
+    }),
+    branches: createEnvironmentQueryAtomFamily(runtime, {
+      label: "work-items:branches",
+      execute: workTaskBranches,
+      staleTimeMs: 0,
+    }),
+    prepareBranch: createEnvironmentCommand(runtime, {
+      label: "work-items:prepare-branch",
+      execute: prepareWorkTaskBranch,
+    }),
+    startThread: createEnvironmentCommand(runtime, {
+      label: "work-items:start-thread",
+      execute: startWorkTaskThread,
+    }),
     list: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "work-items:list",
       tag: WS_METHODS.workItemsSubscribe,
@@ -40,6 +90,10 @@ export function createGitHubIssueAtoms<R, E>(
       label: "github-issues:list",
       tag: WS_METHODS.githubIssuesSubscribe,
       idleTtlMs: 0,
+    }),
+    account: createEnvironmentRpcCommand(runtime, {
+      label: "github-issues:account",
+      tag: WS_METHODS.githubAccount,
     }),
     read: createEnvironmentRpcCommand(runtime, {
       label: "github-issues:read",

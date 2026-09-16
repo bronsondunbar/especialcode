@@ -17,6 +17,7 @@ describe("RPC authorization scopes", () => {
   });
 
   it("separates Slack inbox access, task operations and administrator-owned credentials", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.githubAccount)).toBe(AuthAccessWriteScope);
     expect(requiredScopeForRpcMethod(WS_METHODS.slackAdmin)).toBe(AuthAccessWriteScope);
     expect(requiredScopeForRpcMethod(WS_METHODS.slackMutate)).toBe(AuthOrchestrationOperateScope);
     for (const method of [WS_METHODS.slackGet, WS_METHODS.slackList, WS_METHODS.slackSubscribe])
@@ -24,6 +25,9 @@ describe("RPC authorization scopes", () => {
   });
 
   it("allows read-only clients to inspect WorkItem activity", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.workItemsDelete)).toBe(
+      AuthOrchestrationOperateScope,
+    );
     expect(requiredScopeForRpcMethod(WS_METHODS.workAutomationsControl)).toBe(
       AuthOrchestrationOperateScope,
     );

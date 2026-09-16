@@ -102,6 +102,8 @@ export const WorkItemPatch = Schema.Struct({
 export type WorkItemPatch = typeof WorkItemPatch.Type;
 const mutationBase = { commandId: ShortText, id: WorkItemId };
 const revisionBase = { ...mutationBase, expectedRevision: PositiveInt };
+export const WorkItemDeleteInput = Schema.Struct(revisionBase);
+export type WorkItemDeleteInput = typeof WorkItemDeleteInput.Type;
 export const WorkItemMutation = Schema.Union([
   Schema.Struct({
     ...mutationBase,

@@ -1,3 +1,5 @@
+import { ClearWorkQueueButton } from "../components/work/ClearWorkQueueButton";
+import { WorkTaskThreadButton } from "../components/work/WorkTaskThreadButton";
 import { WorkDashboard } from "../components/work/WorkDashboardPanel";
 import { WorkAutomationPanel } from "../components/work/WorkAutomationPanel";
 import { WorkActivityPanel } from "../components/work/WorkActivityPanel";
@@ -59,13 +61,18 @@ function WorkPage() {
   const supported = environments.filter(
     (environment) => environment.serverConfig?.environment.capabilities.workItems === true,
   );
-  const tab = Route.useSearch().tab ?? "queue";
+  const requestedTab = Route.useSearch().tab ?? "dashboard";
   const navigate = Route.useNavigate();
   const setTab = (tab: WorkTab) => {
     void navigate({ search: { tab } });
   };
   const [selected, setSelected] = useState<EnvironmentId | null>(null);
   const environment = supported.find((item) => item.environmentId === selected) ?? supported[0];
+  const tab =
+    requestedTab === "dashboard" &&
+    !environment?.serverConfig?.environment.capabilities.workDashboard
+      ? "queue"
+      : requestedTab;
   return (
     <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
       <WorkspacePageHeader electron={isElectron}>
@@ -96,14 +103,6 @@ function WorkPage() {
               Dashboard
             </Button>
           )}
-          {environment.serverConfig?.environment.capabilities.workAutomations && (
-            <Button
-              variant={tab === "automations" ? "secondary" : "ghost"}
-              onClick={() => setTab("automations")}
-            >
-              Automations
-            </Button>
-          )}
           <Button variant={tab === "queue" ? "secondary" : "ghost"} onClick={() => setTab("queue")}>
             Work Queue
           </Button>
@@ -120,7 +119,7 @@ function WorkPage() {
               variant={tab === "github" ? "secondary" : "ghost"}
               onClick={() => setTab("github")}
             >
-              GitHub Issues
+              GitHub
             </Button>
           )}
         </div>
@@ -171,6 +170,9 @@ function WorkPage() {
           key={environment.environmentId}
           environmentId={environment.environmentId}
           providers={environment.serverConfig?.providers ?? []}
+          deletionSupported={
+            environment.serverConfig?.environment.capabilities.workItemsDelete === true
+          }
           reviewsSupported={environment.serverConfig?.environment.capabilities.workReviews === true}
           pullRequestsSupported={
             environment.serverConfig?.environment.capabilities.workPullRequests === true
@@ -194,6 +196,7 @@ function WorkPage() {
 }
 
 function WorkQueue({
+  deletionSupported,
   environmentId,
   providers,
   planningSupported,
@@ -204,6 +207,7 @@ function WorkQueue({
 }: {
   environmentId: EnvironmentId;
   providers: ReadonlyArray<ServerProvider>;
+  deletionSupported: boolean;
   planningSupported: boolean;
   activitySupported: boolean;
   executionSupported: boolean;
@@ -319,16 +323,29 @@ function WorkQueue({
               Organize tasks and keep their context together.
             </p>
           </div>
-          <Button
-            disabled={pending}
-            onClick={() => {
-              setError(null);
-              setEditor({ id: WorkItemId.make(randomUUID()), item: null });
-            }}
-          >
-            <PlusIcon className="size-4" />
-            Create task
-          </Button>
+          <div className="flex flex-wrap items-start gap-2">
+            {(!archived || deletionSupported) && (
+              <ClearWorkQueueButton
+                key={`${environmentId}:${archived}`}
+                archived={archived}
+                environmentId={environmentId}
+                onCleared={() => {
+                  setOffset(0);
+                  result.refresh();
+                }}
+              />
+            )}
+            <Button
+              disabled={pending}
+              onClick={() => {
+                setError(null);
+                setEditor({ id: WorkItemId.make(randomUUID()), item: null });
+              }}
+            >
+              <PlusIcon className="size-4" />
+              Create task
+            </Button>
+          </div>
         </div>
         <nav aria-label="Work views" className="flex flex-wrap gap-1 border-b pb-2">
           {WORK_ITEM_VIEWS.map((tab) => (
@@ -477,6 +494,7 @@ function WorkQueue({
                   Activity
                 </Button>
               )}
+              <WorkTaskThreadButton environmentId={environmentId} id={item.id} />
               {planningSupported && (
                 <Button
                   size="sm"

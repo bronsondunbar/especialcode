@@ -1,3 +1,5 @@
+import { ClearWorkQueueButton } from "./ClearWorkQueueButton";
+import { WorkTaskThreadButton } from "./WorkTaskThreadButton";
 import { useDeferredValue, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigation } from "@react-navigation/native";
@@ -101,6 +103,11 @@ export function WorkDashboardPanel({ environment }: { environment: EnvironmentPr
         refreshControl={<RefreshControl refreshing={false} onRefresh={query.refresh} />}
       >
         <Text className="text-2xl font-semibold text-foreground">Developer dashboard</Text>
+        <ClearWorkQueueButton
+          key={environmentId}
+          environmentId={environmentId}
+          onCleared={query.refresh}
+        />
         <Text className="text-sm text-muted-foreground">
           Attention, execution, and review across your projects.
         </Text>
@@ -248,6 +255,7 @@ export function WorkDashboardPanel({ environment }: { environment: EnvironmentPr
                 <Pressable accessibilityRole="button" onPress={() => setTask(item.id)}>
                   <Text className="font-semibold text-foreground">{item.title}</Text>
                 </Pressable>
+                <WorkTaskThreadButton environmentId={environmentId} id={item.id} />
                 <Text className="text-xs text-muted-foreground">
                   {item.project ?? "Unassigned project"} · {label(item.priority)} ·{" "}
                   {label(item.status)}
