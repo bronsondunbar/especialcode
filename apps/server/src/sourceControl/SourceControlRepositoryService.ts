@@ -1,3 +1,6 @@
+import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
+import { githubAccountSecretName } from "../auth/githubAccountSecret.ts";
+import * as Option from "effect/Option";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -80,6 +83,7 @@ function selectRemoteUrl(
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const config = yield* ServerConfig;
+  const secrets = yield* ServerSecretStore;
   const fileSystem = yield* FileSystem.FileSystem;
   const git = yield* GitVcsDriver.GitVcsDriver;
   const path = yield* Path.Path;
@@ -176,7 +180,38 @@ export const make = Effect.gen(function* () {
     let remoteUrl = input.remoteUrl?.trim() ?? null;
     let provider: SourceControlProviderKind = input.provider ?? "unknown";
 
-    if (input.provider && input.repository) {
+    let cloneEnv: NodeJS.ProcessEnv | undefined;
+    if (input.connectedGitHubRepository) {
+      const token = yield* secrets.get(githubAccountSecretName);
+      if (Option.isNone(token))
+        return yield* new SourceControlRepositoryError({
+          operation: "cloneRepository",
+          provider: "github",
+          detail: "Connect your GitHub account before cloning.",
+        });
+      provider = "github";
+      remoteUrl = `https://github.com/${input.connectedGitHubRepository}.git`;
+      repository = {
+        provider,
+        nameWithOwner: input.connectedGitHubRepository,
+        url: `https://github.com/${input.connectedGitHubRepository}`,
+        sshUrl: `git@github.com:${input.connectedGitHubRepository}.git`,
+      };
+      // Process-only credentials: never persist the token in the URL or Git config.
+      const credential = Buffer.from(
+        `x-access-token:${new TextDecoder().decode(token.value)}`,
+      ).toString("base64");
+      cloneEnv = {
+        GIT_TERMINAL_PROMPT: "0",
+        GIT_CONFIG_COUNT: "3",
+        GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
+        GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${credential}`,
+        GIT_CONFIG_KEY_1: "http.followRedirects",
+        GIT_CONFIG_VALUE_1: "false",
+        GIT_CONFIG_KEY_2: "credential.helper",
+        GIT_CONFIG_VALUE_2: "",
+      };
+    } else if (input.provider && input.repository) {
       repository = yield* lookupRepository({
         provider: input.provider,
         repository: input.repository,
@@ -194,13 +229,27 @@ export const make = Effect.gen(function* () {
       });
     }
 
-    yield* git.execute({
-      operation: "SourceControlRepositoryService.cloneRepository",
-      cwd: preparedDestination.parentPath,
-      args: ["clone", remoteUrl, preparedDestination.directoryName],
-      timeoutMs: 120_000,
-      maxOutputBytes: 256 * 1024,
-    });
+    yield* git
+      .execute({
+        operation: "SourceControlRepositoryService.cloneRepository",
+        cwd: preparedDestination.parentPath,
+        args: ["clone", remoteUrl, preparedDestination.directoryName],
+        timeoutMs: 120_000,
+        maxOutputBytes: 256 * 1024,
+        ...(cloneEnv ? { env: cloneEnv } : {}),
+      })
+      .pipe(
+        Effect.mapError((cause) =>
+          cloneEnv
+            ? new SourceControlRepositoryError({
+                operation: "cloneRepository",
+                provider: "github",
+                detail:
+                  "Could not clone this repository. Check token access and the destination folder.",
+              })
+            : cause,
+        ),
+      );
 
     return {
       cwd: preparedDestination.destinationPath,

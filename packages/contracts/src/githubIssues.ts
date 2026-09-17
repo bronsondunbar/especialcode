@@ -129,3 +129,15 @@ export class GitHubIssuesError extends Schema.TaggedError<GitHubIssuesError>()(
     message: Schema.String,
   },
 ) {}
+
+/** Repositories accessible to the connected account, independent of issue tracking. */
+export const GitHubAccountRepository = Schema.Struct({
+  repository: GitHubRepositoryKey.fields.repository,
+  private: Schema.Boolean,
+});
+export type GitHubAccountRepository = typeof GitHubAccountRepository.Type;
+export const GitHubAccountRepositoriesResult = Schema.Struct({
+  login: Schema.NullOr(Schema.String),
+  repositories: Schema.Array(GitHubAccountRepository),
+  partialAccess: Schema.Boolean,
+});

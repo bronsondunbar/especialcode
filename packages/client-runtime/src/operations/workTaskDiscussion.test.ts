@@ -78,10 +78,12 @@ const setup = Effect.fn("TestTaskDiscussion.setup")(function* (
         calls.push("github:get");
         return {
           syncStatus: "ready",
+          body: "Issue description",
           comments: options.noComments
             ? []
             : [
                 {
+                  id: "comment-1",
                   author: "alice",
                   createdAt: "2026-09-16T09:00:00Z",
                   url: `${github.url}#issuecomment-1`,
@@ -166,6 +168,12 @@ describe("optional task discussion context", () => {
         }).pipe(harness.provide);
         expect(harness.calls).toEqual(["github:refresh:12", "github:get"]);
         expect(result.task.revision).toBe(2);
+        expect(result.githubIssue?.body).toBe("Issue description");
+        expect(result.githubIssue?.comments[0]).toMatchObject({
+          id: "comment-1",
+          author: "alice",
+          body: "Include archived results.",
+        });
         expect(result.context.text).toContain("@alice");
         expect(result.context.text).toContain("Include archived results.");
         expect(result.context.text).toContain("2026-09-16T09:00:00Z");
@@ -185,6 +193,7 @@ describe("optional task discussion context", () => {
           harness.provide,
         );
         expect(first.context.hasMore).toBe(true);
+        expect(first.githubIssue).toBeNull();
         expect(first.context.text).toContain("partial thread");
         const next = yield* loadWorkTaskDiscussion({ taskId: task.id, sourceKey, more: true }).pipe(
           harness.provide,

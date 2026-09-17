@@ -186,6 +186,44 @@ const setup = Effect.gen(function* () {
   );
   return { runtime, item, run, cwd, dirty, setupExit, commands, calls, closed, projectRoot };
 });
+for (const guidance of [undefined, "Preserve the public API"]) {
+  it.effect(
+    `generates an execution prompt from task title and body${guidance ? " plus guidance" : " without guidance"}`,
+    () =>
+      Effect.gen(function* () {
+        const ctx = yield* setup;
+        const item = {
+          ...ctx.item,
+          title: "Fix invoice rounding",
+          body: "Round invoice totals to two decimal places.",
+        };
+        yield* ctx.runtime.start(
+          {
+            ...ctx.run,
+            planRevision: null,
+            validationCommands: [],
+            worktreePath: ctx.cwd,
+            ...(guidance ? { guidance } : {}),
+          },
+          item,
+          null,
+          "",
+        );
+        const command = ctx.commands[0]!;
+        assert.equal(command.type, "thread.turn.start");
+        if (command.type === "thread.turn.start") {
+          assert.include(command.message.text, item.title);
+          assert.include(command.message.text, item.body);
+          assert.notInclude(command.message.text, "Approved plan");
+          assert.include(command.message.text, "[WORK_ITEM_COMPLETE]");
+          if (guidance) assert.include(command.message.text, guidance);
+          else assert.notInclude(command.message.text, "Additional user guidance");
+          assert.include(command.message.text, "No server validation commands were configured");
+        }
+      }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+  );
+}
+
 it.effect("uses the Git workflow and project setup, and refuses a dirty source checkout", () =>
   Effect.gen(function* () {
     const ctx = yield* setup;

@@ -5,8 +5,9 @@ Assigning an agent or importing external context does not start execution.
 
 ## Plan with an agent
 
-Assign a WorkItem to a project and move it to **Ready**, then choose **Plan / Execution**.
-Choose an available provider and model, add any constraints, and start planning. You can close
+Open a task and expand **Plan with an agent**. Choose its local repository, an available
+provider and model, optionally add constraints, and start planning. A matching GitHub repository
+is preselected when available. No separate project assignment or move to Ready is needed. You can close
 the view or disconnect while it runs. The result moves the item to **Awaiting Approval**, shown
 under Ready, and is recorded in a dedicated thread attached to the WorkItem.
 
@@ -15,11 +16,13 @@ check out the WorkItem's requested branch. The agent first selects files from th
 inventory, then reviews bounded source snapshots, repository instructions, the WorkItem and
 saved GitHub issue context. The plan lists the files actually inspected; oversized files,
 ignored files, secrets and links outside the project are excluded. Use guidance and regenerate
-if the agent needs different context. Sync GitHub first when you need newer comments.
+if the agent needs different context. Expand **GitHub comments** in a task to load its discussion; use
+**Refresh comments** to fetch newer discussion while the task is open.
 
-Protected planning supports Claude, OpenCode and Antigravity through their existing
-tool-disabled generation paths. Codex, Cursor and Grok remain unavailable for this
-workflow. Provider calls run outside the repository, and planning does not modify its files.
+Protected planning supports Codex through its read-only generation sandbox and Claude,
+OpenCode and Antigravity through their tool-disabled generation paths. Cursor and Grok
+remain unavailable for this workflow. Provider calls run outside the repository, and
+planning does not modify its files.
 
 Review the summary, proposed changes, files, steps, tests, risks, questions and complexity.
 Edit the plan, approve it, or reject it and regenerate with new guidance. Edits clear approval;
@@ -31,12 +34,16 @@ Cancel a running plan to return the item to Ready. If the provider fails or the 
 the item returns to Ready with an explanation; regenerate to retry. A server restart never
 silently repeats a provider call.
 
-## Execute approved work
+## Execute a task
 
-Open **Plan / Execution**, review the plan, choose an execution agent and model, and enter
-at least one required validation command (one shell command per line). **Approve & Execute**
-approves the current draft or checks the existing approval before starting. Changing the
-WorkItem after approval requires editing or regenerating the plan and approving it again.
+Open a task and expand **Execute with an agent**. Choose a local repository, agent and model, then execute.
+A plan is optional: the prompt is generated from the task title and description. Add
+**Additional guidance** only if you have extra instructions. Direct execution can start from
+Inbox, Backlog, Ready, Awaiting Approval or Blocked. The selected project is assigned when execution starts.
+
+To execute a saved plan, select **Use the existing plan** and provide validation commands.
+**Approve & Execute** approves the current draft or checks its existing approval. Changing
+the task after approval requires editing or regenerating the plan and approving it again.
 
 Execution creates a dedicated branch and worktree from the WorkItem's branch, or the current
 commit when no branch is set. Commit or stash changes in the project checkout first. Existing
@@ -50,10 +57,11 @@ Thread**, **Open Worktree**, **View Changes** and **Terminal output** open the e
 surfaces on the selected environment. Open Worktree browses the worktree's files inside T3,
 including when connected remotely.
 
-An agent must explicitly report completion of the approved scope. Once its turn and change
-snapshot are complete, the server runs your validation commands in the worktree. Each command
-has a ten-minute limit; output is bounded and saved. Only a completed implementation with
-passing validation moves to **Review**. A question, failed turn, failed change snapshot or
+An agent must explicitly report completion of the requested scope. Once its turn and change
+snapshot are complete, the server runs any configured validation commands in the worktree.
+Each command has a ten-minute limit; output is bounded and saved. These commands are optional
+for direct execution; the agent is still asked to run appropriate checks and report results.
+A completed implementation with all configured checks passing moves to **Review**. A question, failed turn, failed change snapshot or
 failed validation moves to **Blocked** with a reason. No pull request is created automatically.
 
 **Stop execution** cancels preparation or validation, or requests a stop through the provider.

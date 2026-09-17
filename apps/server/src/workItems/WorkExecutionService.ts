@@ -207,7 +207,9 @@ export const make = Effect.gen(function* () {
               status === "succeeded"
                 ? run.review
                   ? "Changes pushed; awaiting review"
-                  : "Validation passed; ready for review"
+                  : current.validationCommands.length
+                    ? "Validation passed; ready for review"
+                    : "Agent completed; ready for review"
                 : (message ?? status),
             revision: current.revision + 1,
             updatedAt: at,
@@ -409,7 +411,7 @@ export const make = Effect.gen(function* () {
       return yield* finish(
         run,
         "failed",
-        thread.session?.lastError ?? "The agent stopped before completing the approved work.",
+        thread.session?.lastError ?? "The agent stopped before completing the requested work.",
       );
     if (!turn || (run.review && turn.turnId === run.review.previousTurnId)) return;
     // A dedicated thread owns exactly the initial execution turn; follow-ups need a new explicit run.
@@ -423,9 +425,7 @@ export const make = Effect.gen(function* () {
       turnId: turn.turnId,
       activity:
         thread.activities.at(-1)?.summary ??
-        (turn.state === "completed"
-          ? "Waiting for change snapshot"
-          : "Agent implementing approved plan"),
+        (turn.state === "completed" ? "Waiting for change snapshot" : "Agent implementing task"),
     };
     const checkpoint = thread.checkpoints.find((entry) => entry.turnId === turn.turnId);
     const current = yield* update(run.workItemId, run.id, {
@@ -453,14 +453,16 @@ export const make = Effect.gen(function* () {
       return yield* finish(
         current,
         "failed",
-        "The agent did not confirm the approved scope is complete. Review its response in the agent thread.",
+        "The agent did not confirm the requested scope is complete. Review its response in the agent thread.",
       );
     const validating = yield* update(
       run.workItemId,
       run.id,
       {
         status: "validating",
-        activity: "Running required validation",
+        activity: run.validationCommands.length
+          ? "Running required validation"
+          : "Checking completion",
       },
       "running",
     );
@@ -478,7 +480,7 @@ export const make = Effect.gen(function* () {
     yield* finish(
       run,
       "failed",
-      "Execution was interrupted by a server restart. Inspect the retained thread and worktree, then review the plan before retrying.",
+      "Execution was interrupted by a server restart. Inspect the retained thread and worktree, then review the task before retrying.",
     );
   }
   yield* events.pipe(
@@ -536,7 +538,7 @@ export const make = Effect.gen(function* () {
               );
             return null;
           }
-          const item = yield* repo.get(input.id);
+          let item = yield* repo.get(input.id);
           if (!item || item.archivedAt)
             return yield* fail("invalid", "Choose an available WorkItem.");
           const existing = yield* read(item.id);
@@ -549,30 +551,62 @@ export const make = Effect.gen(function* () {
               return yield* fail("conflict", "This WorkItem already has an active execution.");
             if (item.revision !== input.expectedWorkItemRevision)
               return yield* fail("conflict", "The WorkItem changed. Refresh before execution.");
-            if (!item.projectId || !["ready", "awaiting_approval"].includes(item.status))
+            const usesPlan = input.expectedPlanRevision !== null;
+            const projectId = input.projectId ?? item.projectId;
+            if (usesPlan && projectId !== item.projectId)
+              return yield* fail(
+                "conflict",
+                "Regenerate the plan for the selected repository before using it.",
+              );
+            const allowedStatuses = usesPlan
+              ? ["ready", "awaiting_approval"]
+              : ["inbox", "backlog", "ready", "awaiting_approval", "blocked"];
+            if (!projectId || !allowedStatuses.includes(item.status))
               return yield* fail(
                 "invalid",
-                "Assign a project and move the WorkItem to Ready before execution.",
+                "Select a repository for an available task before execution.",
               );
+            const projects =
+              yield* sql`SELECT project_id FROM projection_projects WHERE project_id=${projectId} AND deleted_at IS NULL`;
+            if (!projects.length)
+              return yield* fail("invalid", "The selected repository is unavailable.");
+            item = {
+              ...item,
+              projectId,
+              branch: item.projectId && item.projectId !== projectId ? null : item.branch,
+            };
             const rows = yield* sql<{
               record_json: string;
             }>`SELECT record_json FROM work_item_plans WHERE work_item_id=${item.id}`;
             plan = rows[0] ? yield* decodePlan(rows[0].record_json) : null;
+            if (plan?.status === "generating")
+              return yield* fail(
+                "conflict",
+                "Wait for planning to finish or cancel it before execution.",
+              );
+            if (!usesPlan) {
+              if (owner)
+                return yield* fail("invalid", "Automated execution requires a reviewed plan.");
+              plan = null;
+            }
             if (
-              !plan?.content ||
-              plan.revision !== input.expectedPlanRevision ||
-              !["draft", "approved"].includes(plan.status)
+              usesPlan &&
+              (!plan?.content ||
+                plan.revision !== input.expectedPlanRevision ||
+                !["draft", "approved"].includes(plan.status))
             )
               return yield* fail(
                 "conflict",
                 "Review a current draft or approved plan before execution.",
               );
-            if (plan.status === "approved" && plan.approvedWorkItemRevision !== item.revision)
+            if (plan?.status === "approved" && plan.approvedWorkItemRevision !== item.revision)
               return yield* fail(
                 "conflict",
                 "The WorkItem changed since approval. Edit or regenerate the plan and approve it again.",
               );
-            if (owner)
+            if (usesPlan && !owner && !input.validationCommands.length)
+              return yield* fail("invalid", "Add validation commands for planned execution.");
+            if (owner && plan)
               automation = yield* admitAutomation(
                 owner,
                 item,
@@ -585,7 +619,7 @@ export const make = Effect.gen(function* () {
             );
             if (!agent?.models.some((model) => model.slug === input.modelSelection.model))
               return yield* fail("unavailable", "Choose an available agent and model.");
-            if (plan.status === "draft") {
+            if (plan?.status === "draft") {
               plan = {
                 ...plan,
                 revision: plan.revision + 1,
@@ -602,7 +636,8 @@ export const make = Effect.gen(function* () {
               id: input.commandId,
               workItemId: item.id,
               revision: 1,
-              planRevision: plan.revision,
+              planRevision: plan?.revision ?? null,
+              ...(input.guidance?.trim() ? { guidance: input.guidance.trim() } : {}),
               threadId: ThreadId.make(`execution:${input.commandId}`),
               turnId: null,
               modelSelection: input.modelSelection,
@@ -680,7 +715,6 @@ export const make = Effect.gen(function* () {
         return;
       }
       const { run, item, plan } = result;
-      if (!plan) return;
       yield* fork(
         run,
         Effect.gen(function* () {
@@ -812,7 +846,7 @@ export const make = Effect.gen(function* () {
             record_json: string;
           }>`SELECT record_json FROM work_item_plan_history WHERE work_item_id=${item.id} AND revision=${source.planRevision}`;
           const plan = plans[0] ? yield* decodePlan(plans[0].record_json) : null;
-          if (!plan?.content)
+          if (source.planRevision !== null && !plan?.content)
             return yield* fail("invalid", "The original approved plan is unavailable.");
           const at = yield* now;
           const run: WorkExecution = {

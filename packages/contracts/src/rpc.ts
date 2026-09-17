@@ -48,6 +48,7 @@ import { WorkExecutionMutation, WorkExecutionState, WorkExecutionError } from ".
 import { WorkPlanMutation, WorkPlanState, WorkPlanError } from "./workPlans.ts";
 import {
   GitHubAccountInput,
+  GitHubAccountRepositoriesResult,
   GitHubIssueReference,
   GitHubIssueDetail,
   GitHubIssuesListInput,
@@ -357,6 +358,7 @@ export const WS_METHODS = {
   slackMutate: "slack.mutate",
   slackAdmin: "slack.admin",
   githubAccount: "githubIssues.account",
+  githubAccountRepositories: "githubIssues.accountRepositories",
   githubIssuesList: "githubIssues.list",
   githubIssuesGet: "githubIssues.get",
   githubIssuesMutate: "githubIssues.mutate",
@@ -1572,6 +1574,11 @@ export const WsRpcGroup = RpcGroup.make(
     payload: SlackAdminInput,
     success: SlackAdminResult,
     error: Schema.Union([SlackError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.githubAccountRepositories, {
+    payload: Schema.Struct({}),
+    success: GitHubAccountRepositoriesResult,
+    error: Schema.Union([GitHubIssuesError, EnvironmentAuthorizationError]),
   }),
   Rpc.make(WS_METHODS.githubAccount, {
     payload: GitHubAccountInput,

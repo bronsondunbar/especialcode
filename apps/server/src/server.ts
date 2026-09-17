@@ -350,6 +350,7 @@ const GitWorkflowLayerLive = GitWorkflowService.layer.pipe(
 );
 
 const SourceControlRepositoryServiceLayerLive = SourceControlRepositoryService.layer.pipe(
+  Layer.provide(ServerSecretStore.layer),
   Layer.provideMerge(GitVcsDriver.layer),
   Layer.provideMerge(SourceControlProviderRegistryLayerLive),
 );

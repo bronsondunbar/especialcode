@@ -6,6 +6,7 @@ import { githubAccountSecretName as accountSecretName } from "../../auth/githubA
 export { accountSecretName };
 import {
   GitHubIssuesError,
+  GitHubAccountRepository,
   type GitHubIssue,
   type GitHubIssueReference,
   GitHubRepositoryKey,
@@ -376,6 +377,46 @@ export const make = Effect.gen(function* () {
       message: "Assigned issues exceed 10,000 records. No tasks were imported.",
     });
   });
+  const repositories = Effect.fn("GitHubIssuesAdapter.repositories")(function* (token: string) {
+    const decode = Schema.decodeUnknownEffect(
+      Schema.fromJsonString(
+        Schema.Array(
+          Schema.Struct({
+            full_name: GitHubAccountRepository.fields.repository,
+            private: Schema.Boolean,
+          }),
+        ),
+      ),
+    );
+    const repositories = new Map<string, typeof GitHubAccountRepository.Type>();
+    let partialAccess = false;
+    let bytes = 0;
+    for (let page = 1; page <= 100; page++) {
+      const response = yield* requestRaw(
+        { host: "github.com" },
+        `user/repos?affiliation=owner,collaborator,organization_member&sort=full_name&per_page=100&page=${page}`,
+        token,
+      );
+      partialAccess ||= response.partialAccess;
+      bytes += Buffer.byteLength(response.body);
+      if (bytes > 32 * 1024 * 1024)
+        return yield* new GitHubIssuesError({
+          code: "remote",
+          message: "Repository list exceeds the snapshot limit.",
+        });
+      const batch = yield* decode(response.body).pipe(Effect.mapError(invalidResponse));
+      for (const repo of batch)
+        repositories.set(repo.full_name.toLowerCase(), {
+          repository: repo.full_name,
+          private: repo.private,
+        });
+      if (batch.length < 100) return { repositories: [...repositories.values()], partialAccess };
+    }
+    return yield* new GitHubIssuesError({
+      code: "remote",
+      message: "Repository list exceeds 10,000 records.",
+    });
+  });
   const comment = Effect.fn("GitHubIssuesAdapter.comment")(function* (
     ref: GitHubIssueReference,
     body: string,
@@ -389,7 +430,7 @@ export const make = Effect.gen(function* () {
     const comment = yield* decodeComment(response.body).pipe(Effect.mapError(invalidResponse));
     return { url: comment.html_url };
   });
-  return { list, detail, viewer, assigned, comment };
+  return { list, detail, viewer, assigned, comment, repositories };
 });
 export class GitHubIssuesAdapter extends Context.Service<
   GitHubIssuesAdapter,

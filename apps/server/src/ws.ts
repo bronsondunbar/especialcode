@@ -1692,6 +1692,8 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.slackMutate, slack.mutate(input)),
         [WS_METHODS.slackAdmin]: (input) =>
           observeRpcEffect(WS_METHODS.slackAdmin, slack.admin(input)),
+        [WS_METHODS.githubAccountRepositories]: () =>
+          observeRpcEffect(WS_METHODS.githubAccountRepositories, githubAccount.repositories()),
         [WS_METHODS.githubAccount]: (input) =>
           observeRpcEffect(WS_METHODS.githubAccount, githubAccount.admin(input)),
         [WS_METHODS.githubIssuesList]: (input) =>

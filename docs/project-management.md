@@ -18,8 +18,16 @@ vp run dev
 
 Open the pairing URL printed by the runner. Add a project rooted at a local repository on
 that environment and configure an installed provider in Settings. Open **Work**, create a
-task, assign its project, move it to Ready, and start a plan. Review and approve the plan
-before executing it. See [Agent orchestration](agent-orchestration.md).
+task and select its repository when planning or executing. The picker includes local projects
+and repositories accessible to your connected GitHub account, including organizations. For a
+repository that is not local, choose a destination folder on the connected server and clone it
+from the picker. You can also do this when creating a thread from a task.
+
+Execute directly from the task’s title and description, optionally adding guidance, or generate
+and review a plan first. See [Agent orchestration](agent-orchestration.md).
+
+To remove a local project entry, open Settings → Projects, select it, and choose Remove project
+in Danger. This removes its threads from the app but leaves files on disk and GitHub untouched.
 
 For Electron, use `vp run dev:desktop`. Native mobile development follows the
 [mobile README](../apps/mobile/README.md). Remote clients connect to the machine that owns
@@ -132,10 +140,10 @@ changes. GitHub batch refreshes commit task updates and their cursor together; m
 retain their cache while other issues can refresh. Slack refreshes preserve local edits and archived task context. Failures expose cached data and recovery actions instead of deleting tasks.
 External text is context, not authorization.
 
-**Agent:** generate a restricted plan, review/edit it, approve its current revision, then
-explicitly execute or let an already trusted rule admit it. Execution prepares a worktree and
+**Agent:** execute a task directly, or generate a restricted plan and review/edit it first.
+Trusted rules still require an approved plan. Execution prepares a worktree and
 uses an ordinary agent thread. Completion requires the expected completed turn/checkpoint,
-a completion marker and successful required validation. Review cycles reuse the thread and
+a completion marker and successful configured validation. Review cycles reuse the thread and
 worktree, validate, then commit/push to the existing PR. Confirmed merges complete work.
 Interrupted calls are retained for inspection rather than replayed after restart.
 
@@ -159,7 +167,7 @@ it does not replay interrupted actions.
 - Connected GitHub accounts poll assigned issues every five minutes while the environment runs.
   Connected Slack workspaces also poll direct mentions automatically. Repository-wide GitHub
   sync and optional Slack channel browsing are manual. There is no webhook receiver or full Slack archive. PR feedback uses T3's existing refresh paths.
-- Protected planning currently supports Claude, OpenCode and Antigravity. Context is bounded,
+- Protected planning currently supports Codex, Claude, OpenCode and Antigravity. Context is bounded,
   uses the current checkout rather than the requested execution branch, and can omit files.
   Filename exclusions are not a general secret scanner; review repository content before sharing.
 - A successful cached issue has no maximum age for automation admission. Sync after external

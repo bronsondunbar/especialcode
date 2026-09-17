@@ -1,14 +1,13 @@
+import { WorkRepositoryField, useWorkTaskRepository } from "./WorkRepositoryField";
 import { VercelProjectField, type VercelSelection } from "../vercel/VercelProjectField";
 import {
   workTaskDiscussionSources,
-  workTaskProjectId,
   workTaskBranchName,
   workTaskBranchError,
   workTaskPromptWithDiscussion,
   type WorkTaskDiscussion,
 } from "@t3tools/client-runtime/state/work-items";
 import { useRef, useState } from "react";
-import { useAtomValue } from "@effect/atom-react";
 import { useNavigation } from "@react-navigation/native";
 import { Modal, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -28,7 +27,6 @@ import {
 import { connectionAtomRuntime } from "../../connection/runtime";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { uuidv4 } from "../../lib/uuid";
-import { environmentProjects } from "../../state/projects";
 import { useEnvironments } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -141,15 +139,13 @@ function TaskThreadForm({
   setPending: (pending: boolean) => void;
 }) {
   const navigation = useNavigation();
-  const projects = useAtomValue(environmentProjects.projectsAtom).filter(
-    (project) => project.environmentId === environmentId,
-  );
+  const repository = useWorkTaskRepository(environmentId, task);
+  const { projects, projectId } = repository;
   const { environments } = useEnvironments();
   const providers = (
     environments.find((environment) => environment.environmentId === environmentId)?.serverConfig
       ?.providers ?? []
   ).filter((provider) => provider.enabled && provider.models.length > 0);
-  const [projectId, setProjectId] = useState(() => workTaskProjectId(task, projects));
   const project = projects.find((project) => project.id === projectId);
   const [vercel, setVercel] = useState<{ projectId: string; selection: VercelSelection } | null>(
     null,
@@ -291,16 +287,11 @@ function TaskThreadForm({
           in its project.
         </Text>
       )}
-      <Choice
-        title="Repository"
-        value={projectId}
-        options={projects.map((project) => ({
-          id: project.id,
-          title: `${project.title} — ${project.workspaceRoot}`,
-        }))}
+      <WorkRepositoryField
+        {...repository}
         disabled={pending || hasAttempt}
-        onChange={(id) => {
-          setProjectId(id);
+        setProjectId={(id) => {
+          repository.setProjectId(id);
           setBaseSelection("");
         }}
       />
@@ -354,7 +345,7 @@ function TaskThreadForm({
           environmentId={environmentId}
           projectId={project.id}
           value={vercel?.projectId === projectId ? vercel.selection : undefined}
-          onChange={(selection) => setVercel({ projectId, selection })}
+          onChange={(selection) => setVercel({ projectId: project.id, selection })}
           disabled={pending || hasAttempt}
         />
       )}
@@ -442,7 +433,6 @@ function TaskThreadForm({
           ))}
         </View>
       )}
-      {!projects.length && <Text>Add a project before starting a thread.</Text>}
       {!providers.length && <Text>Enable an agent provider before starting a thread.</Text>}
       {task.archivedAt && <Text>Restore this task before starting a linked thread.</Text>}
       {hasAttempt && newBranch && !created && (

@@ -330,6 +330,9 @@ describe("new thread from task", () => {
     };
     const other = { id: ProjectId.make("other"), repositoryIdentity: null };
     expect(workTaskProjectId(task, [other, project])).toBe(project.id);
+    expect(workTaskProjectId(task, [other])).toBe("");
+    expect(workTaskProjectId(task, [project])).toBe(project.id);
+    expect(workTaskProjectId({ ...task, resources: [] }, [other])).toBe(other.id);
     expect(workTaskProjectId({ ...task, projectId: other.id }, [other, project])).toBe(other.id);
     expect(workTaskProjectId({ ...task, resources: [] }, [other, project])).toBe("");
     expect(workTaskProjectId(task, [project, { ...project, id: other.id }])).toBe("");

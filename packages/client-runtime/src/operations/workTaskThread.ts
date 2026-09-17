@@ -53,7 +53,11 @@ export function workTaskProjectId(
   const matches = projects.filter((project) =>
     keys.has(project.repositoryIdentity?.canonicalKey.toLowerCase() ?? ""),
   );
-  return matches.length === 1 ? matches[0]!.id : projects.length === 1 ? projects[0]!.id : "";
+  return matches.length === 1
+    ? matches[0]!.id
+    : keys.size === 0 && projects.length === 1
+      ? projects[0]!.id
+      : "";
 }
 
 export function workTaskBranchName(task: WorkItem): string {

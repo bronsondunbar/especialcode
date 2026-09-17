@@ -1,7 +1,7 @@
+import { WorkRepositoryField, useWorkTaskRepository } from "./WorkRepositoryField";
 import { VercelProjectField, type VercelSelection } from "../vercel/VercelProjectField";
 import {
   workTaskDiscussionSources,
-  workTaskProjectId,
   workTaskBranchName,
   workTaskBranchError,
   workTaskPromptWithDiscussion,
@@ -20,7 +20,6 @@ import {
 } from "@t3tools/contracts";
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { randomUUID } from "../../lib/utils";
-import { useProjects } from "../../state/entities";
 import { useEnvironments } from "../../state/environments";
 import { useEnvironmentQuery, formatEnvironmentQueryError } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -101,13 +100,13 @@ function TaskThreadForm({
   setPending: (pending: boolean) => void;
 }) {
   const navigate = useNavigate();
-  const projects = useProjects().filter((project) => project.environmentId === environmentId);
+  const repository = useWorkTaskRepository(environmentId, task);
+  const { projects, projectId } = repository;
   const { environments } = useEnvironments();
   const providers = (
     environments.find((environment) => environment.environmentId === environmentId)?.serverConfig
       ?.providers ?? []
   ).filter((provider) => provider.enabled && provider.models.length > 0);
-  const [projectId, setProjectId] = useState(() => workTaskProjectId(task, projects));
   const project = projects.find((project) => project.id === projectId);
   const [vercel, setVercel] = useState<{ projectId: string; selection: VercelSelection } | null>(
     null,
@@ -257,26 +256,14 @@ function TaskThreadForm({
           in its project.
         </p>
       )}
-      <label className="grid gap-1 text-sm">
-        Repository
-        <select
-          className={selectClass}
-          value={projectId}
-          disabled={pending || hasAttempt}
-          onChange={(event) => {
-            setProjectId(event.target.value);
-            setBaseSelection("");
-          }}
-          required
-        >
-          <option value="">Choose a repository</option>
-          {projects.map((project) => (
-            <option key={project.id} value={project.id}>
-              {project.title} — {project.workspaceRoot}
-            </option>
-          ))}
-        </select>
-      </label>
+      <WorkRepositoryField
+        {...repository}
+        disabled={pending || hasAttempt}
+        setProjectId={(id) => {
+          repository.setProjectId(id);
+          setBaseSelection("");
+        }}
+      />
       <label className="flex items-center gap-2 text-sm">
         <input
           type="checkbox"
@@ -337,7 +324,7 @@ function TaskThreadForm({
           environmentId={environmentId}
           projectId={project.id}
           value={vercel?.projectId === projectId ? vercel.selection : undefined}
-          onChange={(selection) => setVercel({ projectId, selection })}
+          onChange={(selection) => setVercel({ projectId: project.id, selection })}
           disabled={pending || hasAttempt}
         />
       )}
@@ -447,7 +434,6 @@ function TaskThreadForm({
           ))}
         </section>
       )}
-      {!projects.length && <p>Add a project before starting a thread.</p>}
       {!providers.length && <p>Enable an agent provider before starting a thread.</p>}
       {task.archivedAt && <p>Restore this task before starting a linked thread.</p>}
       {hasAttempt && newBranch && !created && (

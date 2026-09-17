@@ -27,7 +27,7 @@ const decodeMetadata = Schema.decodeUnknownEffect(
       message: Schema.optionalKey(Schema.NullOr(Schema.String)),
       previousStatus: Schema.optionalKey(Schema.NullOr(Schema.String)),
       fields: Schema.optionalKey(Schema.Array(Schema.String)),
-      planRevision: Schema.optionalKey(Schema.Number),
+      planRevision: Schema.optionalKey(Schema.NullOr(Schema.Number)),
       branch: Schema.optionalKey(Schema.String),
     }),
   ),

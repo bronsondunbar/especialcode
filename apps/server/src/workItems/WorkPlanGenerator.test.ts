@@ -157,6 +157,15 @@ it.effect("advertises only installed, authenticated providers with protected pla
       textGeneration: { generateWorkPlan: () => Effect.succeed(plan) },
       snapshot: { getSnapshot: Effect.succeed(snapshot) },
     } as unknown as ProviderInstance;
+    const codexSnapshot = {
+      ...snapshot,
+      instanceId: ProviderInstanceId.make("codex"),
+      driver: ProviderDriverKind.make("codex"),
+    };
+    const codex = {
+      ...supported,
+      snapshot: { getSnapshot: Effect.succeed(codexSnapshot) },
+    } as unknown as ProviderInstance;
     const unsupported = { ...supported, textGeneration: {} } as unknown as ProviderInstance;
     const signedOut = {
       ...supported,
@@ -173,6 +182,7 @@ it.effect("advertises only installed, authenticated providers with protected pla
               signedOut,
               { ...supported, enabled: false },
               supported,
+              codex,
             ]),
             getInstance: () => Effect.succeed(unsupported),
           }),
@@ -180,6 +190,6 @@ it.effect("advertises only installed, authenticated providers with protected pla
         ),
       ),
     );
-    assert.deepEqual(yield* generator.agents(), [snapshot]);
+    assert.deepEqual(yield* generator.agents(), [snapshot, codexSnapshot]);
   }).pipe(Effect.provide(NodeServices.layer)),
 );

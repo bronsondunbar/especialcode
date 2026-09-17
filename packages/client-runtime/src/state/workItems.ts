@@ -1,3 +1,5 @@
+import { cloneWorkRepository } from "../operations/workRepository.ts";
+export { workTaskGitHubRepository } from "../operations/workRepository.ts";
 import { loadThreadUpdateTargets } from "../operations/workTaskUpdate.ts";
 export { workTaskUpdateDraft } from "../operations/workTaskUpdate.ts";
 import { loadWorkTaskDiscussion } from "../operations/workTaskDiscussion.ts";
@@ -37,6 +39,10 @@ import {
 /** Shared environment-scoped transport, including reconnect/resubscribe behavior. */
 export function createWorkItemAtoms<R, E>(runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>) {
   return {
+    cloneRepository: createEnvironmentCommand(runtime, {
+      label: "work-items:clone-repository",
+      execute: cloneWorkRepository,
+    }),
     updateTargets: createEnvironmentQueryAtomFamily(runtime, {
       label: "work-items:update-targets",
       execute: loadThreadUpdateTargets,
@@ -57,6 +63,11 @@ export function createWorkItemAtoms<R, E>(runtime: Atom.AtomRuntime<EnvironmentR
     discussion: createEnvironmentCommand(runtime, {
       label: "work-items:discussion",
       execute: loadWorkTaskDiscussion,
+    }),
+    discussionDetails: createEnvironmentQueryAtomFamily(runtime, {
+      label: "work-items:discussion-details",
+      execute: loadWorkTaskDiscussion,
+      staleTimeMs: 30_000,
     }),
     branches: createEnvironmentQueryAtomFamily(runtime, {
       label: "work-items:branches",
@@ -101,6 +112,11 @@ export function createGitHubIssueAtoms<R, E>(
       label: "github-issues:list",
       tag: WS_METHODS.githubIssuesSubscribe,
       idleTtlMs: 0,
+    }),
+    repositories: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "github-account:repositories",
+      tag: WS_METHODS.githubAccountRepositories,
+      staleTimeMs: 30_000,
     }),
     account: createEnvironmentRpcCommand(runtime, {
       label: "github-issues:account",

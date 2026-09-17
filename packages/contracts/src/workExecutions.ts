@@ -1,7 +1,7 @@
 import { AutomationExecutionOwner } from "./automationExecution.ts";
 import { PullRequestRef } from "./pullRequest.ts";
 import * as Schema from "effect/Schema";
-import { PositiveInt, ThreadId, TurnId } from "./baseSchemas.ts";
+import { PositiveInt, ProjectId, ThreadId, TurnId } from "./baseSchemas.ts";
 import { ModelSelection } from "./orchestration.ts";
 import { ServerProvider } from "./server.ts";
 import { WorkItem, WorkItemId } from "./workItems.ts";
@@ -32,7 +32,8 @@ export const WorkExecution = Schema.Struct({
   id: Schema.String,
   workItemId: WorkItemId,
   revision: PositiveInt,
-  planRevision: PositiveInt,
+  planRevision: Schema.NullOr(PositiveInt),
+  guidance: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(20000))),
   threadId: ThreadId,
   turnId: Schema.NullOr(TurnId),
   modelSelection: ModelSelection,
@@ -67,9 +68,11 @@ export const WorkExecutionMutation = Schema.Union([
     commandId: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100)),
     id: WorkItemId,
     expectedWorkItemRevision: PositiveInt,
-    expectedPlanRevision: PositiveInt,
+    projectId: Schema.optionalKey(ProjectId),
+    expectedPlanRevision: Schema.NullOr(PositiveInt),
+    guidance: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(20000))),
     modelSelection: ModelSelection,
-    validationCommands: WorkValidationCommands,
+    validationCommands: Schema.Array(Command).check(Schema.isMaxLength(10)),
   }),
   Schema.Struct({
     kind: Schema.Literal("stop"),

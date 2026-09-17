@@ -1,3 +1,5 @@
+import { WorkRepositoryField, useWorkTaskRepository } from "./WorkRepositoryField";
+import { WorkDetails } from "./WorkDetails";
 import { useRef, useState } from "react";
 import { useNavigation } from "@react-navigation/native";
 import { View } from "react-native";
@@ -30,9 +32,22 @@ export function WorkExecutionPanel({
   const result = useEnvironmentQuery(atoms.get({ environmentId, input: { id } }));
   const mutate = useAtomCommand(atoms.mutate, { reportFailure: false });
   const navigation = useNavigation();
+  const repository = useWorkTaskRepository(environmentId, result.data?.item);
   const [provider, setProvider] = useState("");
   const [model, setModel] = useState("");
   const [commands, setCommands] = useState("");
+  const [guidance, setGuidance] = useState("");
+  const [usePlan, setUsePlan] = useState(false);
+  const availablePlan =
+    repository.projectId === result.data?.item.projectId &&
+    plan?.content &&
+    ["draft", "approved"].includes(plan.status)
+      ? plan
+      : null;
+  const selectedPlan = usePlan ? availablePlan : null;
+  const allowedStatuses = selectedPlan
+    ? ["ready", "awaiting_approval"]
+    : ["inbox", "backlog", "ready", "awaiting_approval", "blocked"];
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const previous = useRef<{ key: string; commandId: string } | null>(null);
@@ -141,14 +156,34 @@ export function WorkExecutionPanel({
               )}
             </>
           )}
-          {!active && plan?.content && ["draft", "approved"].includes(plan.status) && (
+          {!active && (
             <>
+              <WorkRepositoryField {...repository} disabled={pending} />
               <Text className="text-sm text-muted-foreground">
-                Execute the reviewed plan in a new worktree from{" "}
-                {data.item.branch ?? "the current commit"}. The project checkout must be clean.
-                Setup runs first; failed setup or validation blocks the WorkItem. Provider approvals
-                appear in the agent thread.
+                The agent receives the task title and description, plus any guidance below. Execute
+                in a new worktree from {data.item.branch ?? "the current commit"}. The project
+                checkout must be clean. Setup runs first; failed setup or validation blocks the
+                WorkItem. Provider approvals appear in the agent thread.
               </Text>
+              <Text>Additional guidance (optional)</Text>
+              <TextInput
+                accessibilityLabel="Additional guidance (optional)"
+                className="min-h-20 rounded-lg border border-border p-3 text-foreground"
+                multiline
+                value={guidance}
+                onChangeText={setGuidance}
+                maxLength={20000}
+                placeholder="Add constraints or details, or leave empty"
+                editable={!pending}
+              />
+              {availablePlan && (
+                <ControlPill
+                  label={usePlan ? "Use existing plan: On" : "Use existing plan: Off"}
+                  onPress={() => setUsePlan((value) => !value)}
+                  disabled={pending}
+                />
+              )}
+
               <ControlPillMenu
                 title="Execution agent"
                 actions={data.agents.map((entry) => ({
@@ -172,46 +207,54 @@ export function WorkExecutionPanel({
               >
                 <ControlPill label={`Model: ${chosen ?? "Select"}`} />
               </ControlPillMenu>
-              <Text>Required validation commands (one shell command per line)</Text>
-              <TextInput
-                className="min-h-24 rounded-lg border border-border p-3 text-foreground"
-                accessibilityLabel="Required validation commands"
-                multiline
-                value={commands}
-                maxLength={40000}
-                onChangeText={setCommands}
-                placeholder="Enter test, typecheck, or build commands"
-              />
-              <Text className="text-xs text-muted-foreground">
-                These commands run in the worktree on the selected environment, with a ten-minute
-                limit each. At least one is required. Review requires an explicit completion report
-                and passing validation.
-              </Text>
+              <WorkDetails
+                title={
+                  selectedPlan ? "Required validation commands" : "Validation commands (optional)"
+                }
+              >
+                <Text>Validation commands (one shell command per line)</Text>
+                <TextInput
+                  className="min-h-24 rounded-lg border border-border p-3 text-foreground"
+                  accessibilityLabel="Validation commands"
+                  multiline
+                  value={commands}
+                  maxLength={40000}
+                  onChangeText={setCommands}
+                  placeholder="Enter test, typecheck, or build commands"
+                />
+                <Text className="text-xs text-muted-foreground">
+                  These commands run in the worktree on the selected environment, with a ten-minute
+                  limit each. The agent also chooses appropriate checks for its changes.
+                </Text>
+              </WorkDetails>
               <ControlPill
-                label="Approve & Execute"
+                label={selectedPlan ? "Approve & Execute" : "Execute with agent"}
                 disabled={
                   pending ||
                   !agent ||
                   !chosen ||
-                  !validationCommands.length ||
-                  !["ready", "awaiting_approval"].includes(data.item.status)
+                  (!!selectedPlan && !validationCommands.length) ||
+                  !repository.projectId ||
+                  !!data.item.archivedAt ||
+                  plan?.status === "generating" ||
+                  !allowedStatuses.includes(data.item.status)
                 }
                 onPress={() => {
-                  if (agent && chosen)
+                  if (agent && chosen && repository.projectId)
                     void send({
                       kind: "start",
                       id,
                       expectedWorkItemRevision: data.item.revision,
-                      expectedPlanRevision: plan.revision,
+                      projectId: repository.projectId,
+                      expectedPlanRevision: selectedPlan?.revision ?? null,
+                      ...(guidance.trim() ? { guidance: guidance.trim() } : {}),
                       modelSelection: { instanceId: agent.instanceId, model: chosen },
                       validationCommands,
                     });
                 }}
               />
-              {!["ready", "awaiting_approval"].includes(data.item.status) && (
-                <Text>
-                  Move the WorkItem to Ready and review its plan before another execution.
-                </Text>
+              {!allowedStatuses.includes(data.item.status) && (
+                <Text>Move the task to Ready before another execution.</Text>
               )}
             </>
           )}

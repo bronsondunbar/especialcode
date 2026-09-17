@@ -143,7 +143,21 @@ export const make = Effect.gen(function* () {
       }).pipe(Effect.repeat(Schedule.spaced("5 minutes")), Effect.asVoid),
     );
   });
-  return { admin, start, drain: worker.drain };
+  const repositories = Effect.fn("GitHubAccountService.repositories")(function* () {
+    const connected = yield* account;
+    if (!connected) return { login: null, repositories: [], partialAccess: false };
+    const token = yield* secrets.get(accountSecretName);
+    if (Option.isNone(token))
+      return yield* new GitHubIssuesError({
+        code: "authentication",
+        message: "Reconnect your GitHub account to load repositories.",
+      });
+    return {
+      login: connected.login,
+      ...(yield* adapter.repositories(new TextDecoder().decode(token.value))),
+    };
+  }, Effect.mapError(safeError));
+  return { admin, start, repositories, drain: worker.drain };
 });
 export class GitHubAccountService extends Context.Service<
   GitHubAccountService,

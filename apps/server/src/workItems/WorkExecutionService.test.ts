@@ -50,6 +50,7 @@ const provider: ServerProvider = {
   skills: [],
 };
 const encodePlan = Schema.encodeSync(Schema.fromJsonString(WorkPlan));
+const decodePlan = Schema.decodeUnknownEffect(Schema.fromJsonString(WorkPlan));
 const setup = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* sql`INSERT INTO projection_projects(project_id,title,workspace_root,scripts_json,created_at,updated_at) VALUES ('project','Project','/repo','[]',${at},${at})`;
@@ -328,6 +329,111 @@ const settled = (service: Effect.Success<typeof make>, id: WorkItemId) =>
     Stream.runHead,
     Effect.map(Option.getOrThrow),
   );
+it.effect("assigns a repository while executing an unassigned inbox task", () =>
+  Effect.gen(function* () {
+    const ctx = yield* setup;
+    const item = yield* ctx.work.mutate({
+      kind: "create",
+      commandId: "new-task",
+      id: WorkItemId.make("inbox-task"),
+      title: "Imported issue",
+      fields: {},
+      source: "manual",
+    });
+    const input = {
+      ...ctx.start,
+      id: item.id,
+      expectedWorkItemRevision: item.revision,
+      projectId: ProjectId.make("project"),
+      expectedPlanRevision: null,
+      validationCommands: [],
+    };
+    yield* ctx.service.mutate(input);
+    yield* Deferred.succeed(ctx.preparationGate, undefined);
+    yield* Deferred.await(ctx.started);
+    yield* ctx.service.mutate(input);
+    const state = yield* ctx.service.get(item.id);
+    assert.equal(state.item.projectId, "project");
+    assert.equal(state.item.status, "running");
+    assert.isNull(state.execution?.planRevision);
+    assert.equal(ctx.calls.start, 1);
+    assert.equal(ctx.calls.prepare, 1);
+  }).pipe(Effect.provide(SqlitePersistenceMemory), Effect.scoped),
+);
+
+it.effect("rejects an unavailable execution repository without recording a run", () =>
+  Effect.gen(function* () {
+    const ctx = yield* setup;
+    const failure = yield* ctx.service
+      .mutate({ ...ctx.start, projectId: ProjectId.make("missing"), expectedPlanRevision: null })
+      .pipe(Effect.flip);
+    assert.equal(failure.code, "invalid");
+    assert.equal((yield* ctx.work.get(ctx.item.id)).projectId, "project");
+    assert.isNull((yield* ctx.service.get(ctx.item.id)).execution);
+    assert.equal(ctx.calls.prepare, 0);
+  }).pipe(Effect.provide(SqlitePersistenceMemory), Effect.scoped),
+);
+
+for (const guidance of [undefined, "  Keep the existing API compatible.  "]) {
+  it.effect(
+    `executes without a plan with ${guidance ? "optional guidance" : "no extra input"}`,
+    () =>
+      Effect.gen(function* () {
+        const ctx = yield* setup;
+        yield* ctx.sql`DELETE FROM work_item_plans`;
+        yield* ctx.sql`DELETE FROM work_item_plan_history`;
+        const inbox = yield* ctx.work.mutate({
+          kind: "status",
+          commandId: "back-to-inbox",
+          id: ctx.item.id,
+          expectedRevision: ctx.start.expectedWorkItemRevision,
+          status: "inbox",
+        });
+        const input = {
+          ...ctx.start,
+          expectedWorkItemRevision: inbox.revision,
+          expectedPlanRevision: null,
+          validationCommands: [],
+          ...(guidance ? { guidance } : {}),
+        };
+        yield* ctx.service.mutate(input);
+        yield* ctx.service.mutate(input);
+        yield* Deferred.succeed(ctx.preparationGate, undefined);
+        yield* Deferred.await(ctx.started);
+        const run = (yield* ctx.service.get(ctx.item.id)).execution!;
+        assert.isNull(run.planRevision);
+        assert.equal(run.guidance, guidance?.trim());
+        assert.equal(ctx.calls.prepare, 1);
+        assert.equal(ctx.calls.start, 1);
+        assert.isEmpty(yield* ctx.sql`SELECT * FROM work_item_plans`);
+        yield* ctx.complete();
+        yield* ctx.service.reconcile(run);
+        const final = yield* settled(ctx.service, ctx.item.id);
+        assert.equal(final.item.status, "review");
+        assert.equal(final.execution?.status, "succeeded");
+        assert.equal(final.execution?.activity, "Agent completed; ready for review");
+        assert.equal(ctx.calls.validate, 0);
+      }).pipe(Effect.provide(SqlitePersistenceMemory), Effect.scoped),
+  );
+}
+
+it.effect(
+  "direct execution leaves an existing draft unapproved and rejects changed guidance on retry",
+  () =>
+    Effect.gen(function* () {
+      const ctx = yield* setup;
+      const input = { ...ctx.start, expectedPlanRevision: null, guidance: "Keep scope small" };
+      yield* ctx.service.mutate(input);
+      const rows = yield* ctx.sql<{ record_json: string }>`SELECT record_json FROM work_item_plans`;
+      assert.equal((yield* decodePlan(rows[0]!.record_json)).status, "draft");
+      assert.equal(
+        (yield* ctx.service.mutate({ ...input, guidance: "Different scope" }).pipe(Effect.flip))
+          .code,
+        "conflict",
+      );
+    }).pipe(Effect.provide(SqlitePersistenceMemory), Effect.scoped),
+);
+
 it.effect(
   "atomically approves, deduplicates execution, waits for a checkpoint and passing validation before review",
   () =>
@@ -551,93 +657,108 @@ it.effect("a failure before worktree creation preserves the original base branch
 
 const encodePr = Schema.encodeSync(Schema.fromJsonString(WorkPullRequestRecord));
 const encodeReview = Schema.encodeSync(Schema.fromJsonString(WorkReviewSnapshot));
-const reviewSetup = Effect.gen(function* () {
-  const ctx = yield* setup;
-  yield* ctx.launch;
-  yield* ctx.complete();
-  yield* ctx.service.reconcile((yield* ctx.service.get(ctx.item.id)).execution!);
-  yield* Deferred.succeed(ctx.validationGate, undefined);
-  yield* settled(ctx.service, ctx.item.id);
-  const state = yield* ctx.service.get(ctx.item.id);
-  const reference = {
-    projectId: ProjectId.make("project"),
-    host: "github.com",
-    repository: "acme/app",
-    number: 7,
-  };
-  const record = {
-    workItemId: ctx.item.id,
-    executionId: "run",
-    commandId: "pr-create",
-    status: "linked" as const,
-    content: { title: "Fix", body: "Body" },
-    reference,
-    url: "https://github.com/acme/app/pull/7",
-    error: null,
-  };
-  yield* ctx.sql`INSERT INTO work_item_pull_requests(work_item_id,record_json) VALUES (${ctx.item.id},${encodePr(record)})`;
-  const snapshot: WorkReviewSnapshot = {
-    reference,
-    revision: 1,
-    fingerprint: "feedback-v1",
-    state: "open",
-    headBranch: state.execution!.branch,
-    reviewDecision: "changes-requested",
-    reviewers: ["reviewer"],
-    checks: [],
-    comments: [],
-    commentsTruncated: false,
-    mergedAt: null,
-    syncedAt: at,
-  };
-  yield* ctx.sql`INSERT INTO work_item_reviews(work_item_id,snapshot_json,sync_error) VALUES (${ctx.item.id},${encodeReview(snapshot)},NULL)`;
-  const input: Extract<WorkReviewMutation, { kind: "send" }> = {
-    kind: "send",
-    id: ctx.item.id,
-    commandId: "review-1",
-    expectedWorkItemRevision: state.item.revision,
-    expectedReviewRevision: 1,
-    guidance: "Fix rounding",
-    validationCommands: ["npm test"],
-  };
-  const launchReview = Effect.gen(function* () {
-    yield* ctx.service.startReview(input, snapshot, "Fix rounding; failed test details");
-    yield* ctx.service.subscribe(ctx.item.id).pipe(
-      Stream.filter(
-        (state) => state.execution?.id === input.commandId && state.execution.status === "running",
-      ),
-      Stream.runHead,
-    );
+const makeReviewSetup = (direct = false) =>
+  Effect.gen(function* () {
+    const ctx = yield* setup;
+    if (direct) {
+      yield* ctx.sql`DELETE FROM work_item_plans`;
+      yield* ctx.sql`DELETE FROM work_item_plan_history`;
+      yield* ctx.service.mutate({ ...ctx.start, expectedPlanRevision: null });
+      yield* Deferred.succeed(ctx.preparationGate, undefined);
+      yield* Deferred.await(ctx.started);
+    } else yield* ctx.launch;
+    yield* ctx.complete();
+    yield* ctx.service.reconcile((yield* ctx.service.get(ctx.item.id)).execution!);
+    yield* Deferred.succeed(ctx.validationGate, undefined);
+    yield* settled(ctx.service, ctx.item.id);
+    const state = yield* ctx.service.get(ctx.item.id);
+    const reference = {
+      projectId: ProjectId.make("project"),
+      host: "github.com",
+      repository: "acme/app",
+      number: 7,
+    };
+    const record = {
+      workItemId: ctx.item.id,
+      executionId: "run",
+      commandId: "pr-create",
+      status: "linked" as const,
+      content: { title: "Fix", body: "Body" },
+      reference,
+      url: "https://github.com/acme/app/pull/7",
+      error: null,
+    };
+    yield* ctx.sql`INSERT INTO work_item_pull_requests(work_item_id,record_json) VALUES (${ctx.item.id},${encodePr(record)})`;
+    const snapshot: WorkReviewSnapshot = {
+      reference,
+      revision: 1,
+      fingerprint: "feedback-v1",
+      state: "open",
+      headBranch: state.execution!.branch,
+      reviewDecision: "changes-requested",
+      reviewers: ["reviewer"],
+      checks: [],
+      comments: [],
+      commentsTruncated: false,
+      mergedAt: null,
+      syncedAt: at,
+    };
+    yield* ctx.sql`INSERT INTO work_item_reviews(work_item_id,snapshot_json,sync_error) VALUES (${ctx.item.id},${encodeReview(snapshot)},NULL)`;
+    const input: Extract<WorkReviewMutation, { kind: "send" }> = {
+      kind: "send",
+      id: ctx.item.id,
+      commandId: "review-1",
+      expectedWorkItemRevision: state.item.revision,
+      expectedReviewRevision: 1,
+      guidance: "Fix rounding",
+      validationCommands: ["npm test"],
+    };
+    const launchReview = Effect.gen(function* () {
+      yield* ctx.service.startReview(input, snapshot, "Fix rounding; failed test details");
+      yield* ctx.service.subscribe(ctx.item.id).pipe(
+        Stream.filter(
+          (state) =>
+            state.execution?.id === input.commandId && state.execution.status === "running",
+        ),
+        Stream.runHead,
+      );
+    });
+    return { ...ctx, snapshot, input, launchReview };
   });
-  return { ...ctx, snapshot, input, launchReview };
-});
-it.effect(
-  "review cycles reuse the original thread and worktree and push only after new turn validation",
-  () =>
-    Effect.gen(function* () {
-      const ctx = yield* reviewSetup;
-      yield* ctx.launchReview;
-      yield* ctx.service.startReview(ctx.input, ctx.snapshot, "Fix rounding; failed test details");
-      assert.equal(ctx.calls.start, 2);
-      assert.equal(ctx.calls.prepare, 1);
-      const run = (yield* ctx.service.get(ctx.item.id)).execution!;
-      assert.equal(run.threadId, "execution:run");
-      assert.equal(run.worktreePath, "/worktree");
-      assert.deepEqual(run.review?.previousUserMessageIds, ["execution-message:run"]);
-      assert.equal(ctx.calls.publish, 0);
-      yield* ctx.complete();
-      yield* ctx.service.reconcile(run);
-      yield* Deferred.await(ctx.publishing);
-      assert.equal((yield* ctx.service.get(ctx.item.id)).execution?.status, "publishing");
-      yield* Deferred.succeed(ctx.publishGate, undefined);
-      const finished = yield* settled(ctx.service, ctx.item.id);
-      assert.equal(finished.item.status, "review");
-      assert.equal(finished.execution?.status, "succeeded");
-      assert.equal(ctx.calls.publish, 1);
-      const items = yield* ctx.sql`SELECT * FROM work_items`;
-      assert.equal(items.length, 1);
-    }).pipe(Effect.provide(SqlitePersistenceMemory), Effect.scoped),
-);
+const reviewSetup = makeReviewSetup();
+for (const direct of [false, true]) {
+  it.effect(
+    `review cycles reuse the original ${direct ? "unplanned" : "planned"} thread and worktree and push only after validation`,
+    () =>
+      Effect.gen(function* () {
+        const ctx = yield* makeReviewSetup(direct);
+        yield* ctx.launchReview;
+        yield* ctx.service.startReview(
+          ctx.input,
+          ctx.snapshot,
+          "Fix rounding; failed test details",
+        );
+        assert.equal(ctx.calls.start, 2);
+        assert.equal(ctx.calls.prepare, 1);
+        const run = (yield* ctx.service.get(ctx.item.id)).execution!;
+        assert.equal(run.threadId, "execution:run");
+        assert.equal(run.worktreePath, "/worktree");
+        assert.deepEqual(run.review?.previousUserMessageIds, ["execution-message:run"]);
+        assert.equal(ctx.calls.publish, 0);
+        yield* ctx.complete();
+        yield* ctx.service.reconcile(run);
+        yield* Deferred.await(ctx.publishing);
+        assert.equal((yield* ctx.service.get(ctx.item.id)).execution?.status, "publishing");
+        yield* Deferred.succeed(ctx.publishGate, undefined);
+        const finished = yield* settled(ctx.service, ctx.item.id);
+        assert.equal(finished.item.status, "review");
+        assert.equal(finished.execution?.status, "succeeded");
+        assert.equal(ctx.calls.publish, 1);
+        const items = yield* ctx.sql`SELECT * FROM work_items`;
+        assert.equal(items.length, 1);
+      }).pipe(Effect.provide(SqlitePersistenceMemory), Effect.scoped),
+  );
+}
 it.effect("failed review validation blocks the item without publishing", () =>
   Effect.gen(function* () {
     const ctx = yield* reviewSetup;

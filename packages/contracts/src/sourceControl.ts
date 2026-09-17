@@ -1,3 +1,4 @@
+import { GitHubRepositoryKey } from "./githubIssues.ts";
 import * as Schema from "effect/Schema";
 import { PositiveInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { VcsDriverKind } from "./vcs.ts";
@@ -70,6 +71,7 @@ export const SourceControlRepositoryLookupInput = Schema.Struct({
 export type SourceControlRepositoryLookupInput = typeof SourceControlRepositoryLookupInput.Type;
 
 export const SourceControlCloneRepositoryInput = Schema.Struct({
+  connectedGitHubRepository: Schema.optionalKey(GitHubRepositoryKey.fields.repository),
   provider: Schema.optional(SourceControlProviderKind),
   repository: Schema.optional(TrimmedNonEmptyString),
   remoteUrl: Schema.optional(TrimmedNonEmptyString),

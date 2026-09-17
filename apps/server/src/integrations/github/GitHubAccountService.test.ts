@@ -38,6 +38,11 @@ const setup = Effect.gen(function* () {
   const viewer = yield* Ref.make({ id: 123, login: "alice" });
   const called = yield* Ref.make(yield* Deferred.make<void>());
   const adapter = GitHubIssuesAdapter.of({
+    repositories: () =>
+      Effect.succeed({
+        repositories: [{ repository: "org-one/private", private: true }],
+        partialAccess: false,
+      }),
     comment: () => Effect.die("unused"),
     viewer: () => Ref.get(viewer),
     assigned: () =>
@@ -208,4 +213,31 @@ it.effect("does not recreate permanently deleted assigned issues after a new syn
     assert.strictEqual((yield* work.list({ archived: true })).total, 0);
     assert.strictEqual((yield* work.get(item.id).pipe(Effect.flip)).code, "not_found");
   }).pipe(Effect.scoped, Effect.provide(SqlitePersistenceMemory)),
+);
+
+it.effect(
+  "loads repository choices only for the connected account and clears them after disconnect",
+  () =>
+    Effect.gen(function* () {
+      const { service, values } = yield* setup;
+      assert.deepEqual(yield* service.repositories(), {
+        login: null,
+        repositories: [],
+        partialAccess: false,
+      });
+      yield* service.admin({ kind: "connect", token: "repo-token" });
+      assert.deepEqual(yield* service.repositories(), {
+        login: "alice",
+        repositories: [{ repository: "org-one/private", private: true }],
+        partialAccess: false,
+      });
+      values.clear();
+      assert.strictEqual((yield* service.repositories().pipe(Effect.flip)).code, "authentication");
+      yield* service.admin({ kind: "disconnect" });
+      assert.deepEqual(yield* service.repositories(), {
+        login: null,
+        repositories: [],
+        partialAccess: false,
+      });
+    }).pipe(Effect.provide(SqlitePersistenceMemory)),
 );

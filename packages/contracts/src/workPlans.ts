@@ -1,5 +1,5 @@
 import * as Schema from "effect/Schema";
-import { PositiveInt, ThreadId } from "./baseSchemas.ts";
+import { PositiveInt, ProjectId, ThreadId } from "./baseSchemas.ts";
 import { ModelSelection } from "./orchestration.ts";
 import { ServerProvider } from "./server.ts";
 import { WorkItem, WorkItemId } from "./workItems.ts";
@@ -54,6 +54,7 @@ export const WorkPlanMutation = Schema.Union([
     ...base,
     kind: Schema.Literal("start"),
     expectedWorkItemRevision: PositiveInt,
+    projectId: Schema.optionalKey(ProjectId),
     modelSelection: ModelSelection,
     feedback: Schema.optionalKey(Text),
   }),

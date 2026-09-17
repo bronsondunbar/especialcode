@@ -103,6 +103,53 @@ const settled = (service: Effect.Success<typeof make>, id: WorkItemId) =>
     Stream.runHead,
     Effect.map(Option.getOrThrow),
   );
+it.effect("assigns the selected repository and starts planning from an unassigned inbox task", () =>
+  Effect.gen(function* () {
+    const ctx = yield* setup;
+    const item = yield* ctx.work.mutate({
+      kind: "create",
+      commandId: "new-task",
+      id: WorkItemId.make("inbox-task"),
+      title: "Imported issue",
+      fields: {},
+      source: "manual",
+    });
+    const input = {
+      ...ctx.start,
+      id: item.id,
+      expectedWorkItemRevision: item.revision,
+      projectId: ProjectId.make("project"),
+    };
+    yield* ctx.service.mutate(input);
+    yield* Deferred.await(ctx.entered);
+    yield* ctx.service.mutate(input);
+    const state = yield* ctx.service.get(item.id);
+    assert.equal(state.item.projectId, "project");
+    assert.equal(state.item.status, "planning");
+    assert.equal(yield* Ref.get(ctx.calls), 1);
+    const created = ctx.commands.find((command) => command.type === "thread.create");
+    assert.equal(
+      created?.type === "thread.create" ? created.projectId : null,
+      ProjectId.make("project"),
+    );
+    yield* Deferred.succeed(ctx.release, undefined);
+    assert.equal((yield* settled(ctx.service, item.id)).item.status, "awaiting_approval");
+  }).pipe(Effect.provide(SqlitePersistenceMemory), Effect.scoped),
+);
+
+it.effect("rejects an unavailable repository without changing the task or starting an agent", () =>
+  Effect.gen(function* () {
+    const ctx = yield* setup;
+    const failure = yield* ctx.service
+      .mutate({ ...ctx.start, projectId: ProjectId.make("missing") })
+      .pipe(Effect.flip);
+    assert.equal(failure.code, "invalid");
+    assert.equal((yield* ctx.work.get(ctx.item.id)).projectId, "project");
+    assert.equal((yield* ctx.service.get(ctx.item.id)).plan, null);
+    assert.equal(ctx.commands.length, 0);
+  }).pipe(Effect.provide(SqlitePersistenceMemory), Effect.scoped),
+);
+
 it.effect(
   "persists plans and transcripts, deduplicates starts and keeps approval separate from execution",
   () =>

@@ -160,6 +160,52 @@ function withFakeCodexEnv<A, E, R>(
 }
 
 it.layer(CodexTextGenerationTestLayer)("CodexTextGeneration", (it) => {
+  it.effect("generates a validated work plan in a read-only sandbox without approvals or MCP", () =>
+    withFakeCodexEnv(
+      {
+        output: JSON.stringify({
+          summary: "Plan feature",
+          proposedChanges: [],
+          affectedFiles: ["src/app.ts"],
+          steps: ["Implement"],
+          tests: ["Unit tests"],
+          risks: [],
+          questions: [],
+          complexity: "low",
+        }),
+        requireArg:
+          '-s read-only --config sandbox_mode="read-only" --config approval_policy="never" --config mcp_servers={}',
+        launchArgs: '--config sandbox_mode="danger-full-access"',
+        stdinMustContain: "Inspect the supplied snapshots",
+      },
+      (generation) =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "t3-plan-codex-" });
+          const result = yield* generation.generateWorkPlan!({
+            cwd,
+            prompt: "Do not modify code. Inspect the supplied snapshots.",
+            modelSelection: DEFAULT_TEST_MODEL_SELECTION,
+          });
+          expect(result.summary).toBe("Plan feature");
+          expect(result.affectedFiles).toEqual(["src/app.ts"]);
+        }),
+    ),
+  );
+
+  it.effect("rejects malformed structured plans", () =>
+    withFakeCodexEnv({ output: JSON.stringify({ summary: "Incomplete plan" }) }, (generation) =>
+      Effect.gen(function* () {
+        const result = yield* generation.generateWorkPlan!({
+          cwd: process.cwd(),
+          prompt: "Plan only",
+          modelSelection: DEFAULT_TEST_MODEL_SELECTION,
+        }).pipe(Effect.result);
+        expect(Result.isFailure(result)).toBe(true);
+      }),
+    ),
+  );
+
   for (const selectedModel of ["gpt-5.6-luna", "openai.gpt-5.6-luna"]) {
     it.effect(`dispatches the qualified live model for ${selectedModel}`, () =>
       withFakeCodexEnv(

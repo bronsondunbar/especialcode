@@ -306,3 +306,75 @@ it.effect("pipes GitHub CLI comment bodies through stdin", () =>
     assert.strictEqual(call.stdin, '{"body":"Reviewed update"}');
   }).pipe(Effect.provide(layer)),
 );
+
+it.effect(
+  "lists personal, collaborator and organization repositories with token auth and pagination",
+  () =>
+    Effect.gen(function* () {
+      const requests: string[] = [];
+      const http = HttpClient.make((request) =>
+        Effect.sync(() => {
+          requests.push(request.url);
+          assert.strictEqual(request.headers.authorization, "Bearer repo-token");
+          const url = new URL(request.url);
+          assert.strictEqual(url.pathname, "/user/repos");
+          assert.strictEqual(
+            url.searchParams.get("affiliation"),
+            "owner,collaborator,organization_member",
+          );
+          const first = url.searchParams.get("page") === "1";
+          return HttpClientResponse.fromWeb(
+            request,
+            Response.json(
+              first
+                ? Array.from({ length: 100 }, (_, i) => ({
+                    full_name: `owner/repo-${i}`,
+                    private: false,
+                  }))
+                : [
+                    { full_name: "org/private", private: true },
+                    { full_name: "owner/repo-0", private: false },
+                  ],
+              {
+                headers: first ? { "x-github-sso": "partial-results; organizations=1" } : {},
+              },
+            ),
+          );
+        }),
+      );
+      const adapter = yield* make.pipe(Effect.provideService(HttpClient.HttpClient, http));
+      const result = yield* adapter.repositories("repo-token");
+      assert.strictEqual(result.repositories.length, 101);
+      assert.deepEqual(result.repositories.at(-1), { repository: "org/private", private: true });
+      assert.isTrue(result.partialAccess);
+      assert.strictEqual(requests.length, 2);
+      assert.strictEqual(execute.mock.calls.length, 0);
+    }).pipe(Effect.provide(layer)),
+);
+
+it.effect(
+  "rejects a failed repository page without returning an incomplete list or falling back to CLI auth",
+  () =>
+    Effect.gen(function* () {
+      const http = HttpClient.make((request) =>
+        Effect.succeed(
+          HttpClientResponse.fromWeb(
+            request,
+            request.url.endsWith("page=1")
+              ? Response.json(
+                  Array.from({ length: 100 }, (_, i) => ({
+                    full_name: `owner/repo-${i}`,
+                    private: false,
+                  })),
+                )
+              : new Response("repo-token", { status: 401 }),
+          ),
+        ),
+      );
+      const adapter = yield* make.pipe(Effect.provideService(HttpClient.HttpClient, http));
+      const failure = yield* adapter.repositories("repo-token").pipe(Effect.flip);
+      assert.strictEqual(failure.code, "authentication");
+      assert.notInclude(failure.message, "repo-token");
+      assert.strictEqual(execute.mock.calls.length, 0);
+    }).pipe(Effect.provide(layer)),
+);

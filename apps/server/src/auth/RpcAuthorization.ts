@@ -35,6 +35,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.slackSubscribe]: AuthOrchestrationReadScope,
   [WS_METHODS.slackMutate]: AuthOrchestrationOperateScope,
   [WS_METHODS.slackAdmin]: AuthAccessWriteScope,
+  [WS_METHODS.githubAccountRepositories]: AuthOrchestrationReadScope,
   [WS_METHODS.githubAccount]: AuthAccessWriteScope,
   [WS_METHODS.githubIssuesList]: AuthOrchestrationReadScope,
   [WS_METHODS.githubIssuesGet]: AuthOrchestrationReadScope,

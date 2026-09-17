@@ -1,3 +1,6 @@
+import { WorkRepositoryField, useWorkTaskRepository } from "./WorkRepositoryField";
+import { Checkbox } from "../ui/checkbox";
+import { WorkDetails } from "./WorkDetails";
 import { useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { createWorkExecutionAtoms } from "@t3tools/client-runtime/state/work-items";
@@ -31,9 +34,22 @@ export function WorkExecutionPanel({
   const result = useEnvironmentQuery(atoms.get({ environmentId, input: { id } }));
   const mutate = useAtomCommand(atoms.mutate, { reportFailure: false });
   const navigate = useNavigate();
+  const repository = useWorkTaskRepository(environmentId, result.data?.item);
   const [provider, setProvider] = useState("");
   const [model, setModel] = useState("");
   const [commands, setCommands] = useState("");
+  const [guidance, setGuidance] = useState("");
+  const [usePlan, setUsePlan] = useState(false);
+  const availablePlan =
+    repository.projectId === result.data?.item.projectId &&
+    plan?.content &&
+    ["draft", "approved"].includes(plan.status)
+      ? plan
+      : null;
+  const selectedPlan = usePlan ? availablePlan : null;
+  const allowedStatuses = selectedPlan
+    ? ["ready", "awaiting_approval"]
+    : ["inbox", "backlog", "ready", "awaiting_approval", "blocked"];
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const previous = useRef<{ key: string; commandId: string } | null>(null);
@@ -154,14 +170,32 @@ export function WorkExecutionPanel({
               )}
             </>
           )}
-          {!active && plan?.content && ["draft", "approved"].includes(plan.status) && (
+          {!active && (
             <>
+              <WorkRepositoryField {...repository} disabled={pending} />
               <p className="text-sm text-muted-foreground">
-                Execute the reviewed plan in a new worktree from{" "}
-                {data.item.branch ?? "the current commit"}. The project checkout must be clean.
-                Project setup runs first; failed setup or validation blocks the WorkItem. Provider
-                approvals appear in the agent thread.
+                The agent receives the task title and description, plus any guidance below. Execute
+                in a new worktree from {data.item.branch ?? "the current commit"}. The project
+                checkout must be clean. Project setup runs first; failed setup or validation blocks
+                the WorkItem. Provider approvals appear in the agent thread.
               </p>
+              <label className="grid gap-1 text-sm">
+                Additional guidance (optional)
+                <Textarea
+                  value={guidance}
+                  onChange={(event) => setGuidance(event.target.value)}
+                  maxLength={20000}
+                  placeholder="Add constraints or details, or leave empty"
+                  disabled={pending}
+                />
+              </label>
+              {availablePlan && (
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox checked={usePlan} onCheckedChange={setUsePlan} disabled={pending} />
+                  Use the existing plan
+                </label>
+              )}
+
               <div className="flex flex-wrap gap-3">
                 <label className="grid gap-1 text-sm">
                   Execution agent
@@ -201,46 +235,54 @@ export function WorkExecutionPanel({
                   </select>
                 </label>
               </div>
-              <label className="grid gap-1 text-sm">
-                Required validation commands (one shell command per line)
-                <Textarea
-                  value={commands}
-                  maxLength={40000}
-                  onChange={(event) => setCommands(event.target.value)}
-                  placeholder="Enter the project's test, typecheck, or build commands"
-                />
-              </label>
-              <p className="text-xs text-muted-foreground">
-                These commands run on the selected environment in the worktree, with a ten-minute
-                limit per command. At least one is required. Review requires an explicit completion
-                report and passing validation.
-              </p>
+              <WorkDetails
+                title={
+                  selectedPlan ? "Required validation commands" : "Validation commands (optional)"
+                }
+              >
+                <label className="grid gap-1 text-sm">
+                  Validation commands (one shell command per line)
+                  <Textarea
+                    value={commands}
+                    maxLength={40000}
+                    onChange={(event) => setCommands(event.target.value)}
+                    placeholder="Enter the project's test, typecheck, or build commands"
+                  />
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  These commands run on the selected environment in the worktree, with a ten-minute
+                  limit per command. The agent also chooses appropriate checks for its changes.
+                </p>
+              </WorkDetails>
               <Button
                 disabled={
                   pending ||
                   !agent ||
                   !chosen ||
-                  !validationCommands.length ||
-                  !["ready", "awaiting_approval"].includes(data.item.status)
+                  (!!selectedPlan && !validationCommands.length) ||
+                  !repository.projectId ||
+                  !!data.item.archivedAt ||
+                  plan?.status === "generating" ||
+                  !allowedStatuses.includes(data.item.status)
                 }
                 onClick={() => {
-                  if (agent && chosen)
+                  if (agent && chosen && repository.projectId)
                     void send({
                       kind: "start",
                       id,
                       expectedWorkItemRevision: data.item.revision,
-                      expectedPlanRevision: plan.revision,
+                      projectId: repository.projectId,
+                      expectedPlanRevision: selectedPlan?.revision ?? null,
+                      ...(guidance.trim() ? { guidance: guidance.trim() } : {}),
                       modelSelection: { instanceId: agent.instanceId, model: chosen },
                       validationCommands,
                     });
                 }}
               >
-                Approve &amp; Execute
+                {selectedPlan ? "Approve & Execute" : "Execute with agent"}
               </Button>
-              {!["ready", "awaiting_approval"].includes(data.item.status) && (
-                <p className="text-sm">
-                  Move the WorkItem to Ready and review its plan before another execution.
-                </p>
+              {!allowedStatuses.includes(data.item.status) && (
+                <p className="text-sm">Move the task to Ready before another execution.</p>
               )}
             </>
           )}

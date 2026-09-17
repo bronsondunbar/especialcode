@@ -13,6 +13,7 @@ import {
   type ModelSelection,
   type ServerProviderModel,
   TextGenerationError,
+  WorkPlanContent,
 } from "@t3tools/contracts";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
@@ -103,7 +104,8 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
-      | "generateThreadTitle",
+      | "generateThreadTitle"
+      | "generateWorkPlan",
     value: unknown,
   ): Effect.Effect<string, TextGenerationError> =>
     encodeJsonString(value).pipe(
@@ -164,7 +166,8 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
-      | "generateThreadTitle";
+      | "generateThreadTitle"
+      | "generateWorkPlan";
     cwd: string;
     prompt: string;
     outputSchemaJson: S;
@@ -202,6 +205,16 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
           "--skip-git-repo-check",
           "-s",
           "read-only",
+          ...(operation === "generateWorkPlan"
+            ? [
+                "--config",
+                'sandbox_mode="read-only"',
+                "--config",
+                'approval_policy="never"',
+                "--config",
+                "mcp_servers={}",
+              ]
+            : []),
           "--model",
           model,
           "--config",
@@ -415,7 +428,20 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       } satisfies TextGeneration.ThreadTitleGenerationResult;
     });
 
+  const generateWorkPlan = Effect.fn("CodexTextGeneration.generateWorkPlan")(function* (
+    input: TextGeneration.WorkPlanGenerationInput,
+  ) {
+    return yield* runCodexJson({
+      operation: "generateWorkPlan",
+      cwd: input.cwd,
+      prompt: input.prompt,
+      outputSchemaJson: WorkPlanContent,
+      modelSelection: input.modelSelection,
+    });
+  });
+
   return {
+    generateWorkPlan,
     generateCommitMessage,
     generatePrContent,
     generateBranchName,

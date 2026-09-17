@@ -1,3 +1,5 @@
+import * as Option from "effect/Option";
+import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
 import * as NodePath from "@effect/platform-node/NodePath";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
@@ -55,11 +57,20 @@ function processOutput(): GitVcsDriver.ExecuteGitResult {
 }
 
 function makeLayer(input: {
+  readonly token?: string;
   readonly provider?: SourceControlProvider.SourceControlProvider["Service"];
   readonly git?: Partial<GitVcsDriver.GitVcsDriver["Service"]>;
   readonly fileSystem?: FileSystem.FileSystem;
 }) {
   const serviceLayer = SourceControlRepositoryService.layer.pipe(
+    Layer.provide(
+      Layer.mock(ServerSecretStore)({
+        get: () =>
+          Effect.succeed(
+            input.token ? Option.some(new TextEncoder().encode(input.token)) : Option.none(),
+          ),
+      }),
+    ),
     Layer.provide(
       Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)({
         get: () => Effect.succeed(input.provider ?? makeProvider()),
@@ -399,3 +410,68 @@ it.effect("publish succeeds with status remote_added when the local repo has no 
     ),
   );
 });
+
+it.effect(
+  "clones connected GitHub repositories with ephemeral token credentials and a clean origin URL",
+  () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const parent = yield* fs.makeTempDirectoryScoped({ prefix: "t3-account-clone-" });
+      const calls: GitVcsDriver.ExecuteGitInput[] = [];
+      yield* Effect.gen(function* () {
+        const service = yield* SourceControlRepositoryService.SourceControlRepositoryService;
+        const result = yield* service.cloneRepository({
+          connectedGitHubRepository: "org/private",
+          destinationPath: `${parent}/private`,
+          remoteUrl: "https://other.example/repo.git",
+        });
+        assert.strictEqual(result.remoteUrl, "https://github.com/org/private.git");
+        assert.strictEqual(result.repository?.nameWithOwner, "org/private");
+        assert.deepEqual(calls[0]?.args, [
+          "clone",
+          "https://github.com/org/private.git",
+          "private",
+        ]);
+        assert.strictEqual(calls[0]?.env?.GIT_CONFIG_KEY_0, "http.https://github.com/.extraheader");
+        assert.strictEqual(
+          calls[0]?.env?.GIT_CONFIG_VALUE_0,
+          `AUTHORIZATION: basic ${Buffer.from("x-access-token:test-token").toString("base64")}`,
+        );
+        assert.strictEqual(calls[0]?.env?.GIT_CONFIG_VALUE_1, "false");
+      }).pipe(
+        Effect.provide(
+          makeLayer({
+            token: "test-token",
+            git: {
+              execute: (input) =>
+                Effect.sync(() => {
+                  calls.push(input);
+                  return processOutput();
+                }),
+            },
+          }),
+        ),
+      );
+    }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
+  "refuses a connected-account clone without a token rather than using machine Git credentials",
+  () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const parent = yield* fs.makeTempDirectoryScoped({ prefix: "t3-account-clone-" });
+      yield* Effect.gen(function* () {
+        const service = yield* SourceControlRepositoryService.SourceControlRepositoryService;
+        const error = yield* service
+          .cloneRepository({
+            connectedGitHubRepository: "org/private",
+            destinationPath: `${parent}/private`,
+          })
+          .pipe(Effect.flip);
+        assert.include(error.detail, "Connect your GitHub account");
+      }).pipe(
+        Effect.provide(makeLayer({ git: { execute: () => Effect.die("Must not invoke Git") } })),
+      );
+    }).pipe(Effect.provide(NodeServices.layer)),
+);

@@ -207,16 +207,19 @@ export const make = Effect.gen(function* () {
           let next: WorkItem;
           let project: { title: string; workspace_root: string } | null = null;
           if (input.kind === "start") {
+            const projectId = input.projectId ?? item.projectId;
             if (item.revision !== input.expectedWorkItemRevision)
               return yield* error("conflict", "This WorkItem changed. Refresh before planning.");
             if (
-              !item.projectId ||
-              !["ready", "awaiting_approval"].includes(item.status) ||
+              !projectId ||
+              !["inbox", "backlog", "ready", "awaiting_approval", "blocked"].includes(
+                item.status,
+              ) ||
               current?.status === "generating"
             )
               return yield* error(
                 "invalid",
-                "Assign a project and move the WorkItem to Ready before planning.",
+                "Select a repository for an available task before planning.",
               );
             const candidates = yield* generator.agents();
             const agent = candidates.find(
@@ -230,7 +233,7 @@ export const make = Effect.gen(function* () {
             const projects = yield* sql<{
               title: string;
               workspace_root: string;
-            }>`SELECT title,workspace_root FROM projection_projects WHERE project_id=${item.projectId} AND deleted_at IS NULL`;
+            }>`SELECT title,workspace_root FROM projection_projects WHERE project_id=${projectId} AND deleted_at IS NULL`;
             if (!projects[0])
               return yield* error("invalid", "The assigned project is unavailable.");
             project = projects[0];
@@ -254,6 +257,8 @@ export const make = Effect.gen(function* () {
             };
             next = {
               ...item,
+              projectId,
+              branch: item.projectId && item.projectId !== projectId ? null : item.branch,
               status: "planning",
               assignedAgent: input.modelSelection.instanceId,
               agentThreadId: plan.threadId,

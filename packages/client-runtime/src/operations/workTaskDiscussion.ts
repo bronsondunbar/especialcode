@@ -4,6 +4,7 @@ import {
   WS_METHODS,
   WorkItemError,
   type WorkItem,
+  type GitHubIssueDetail,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import { request } from "../rpc/client.ts";
@@ -41,6 +42,7 @@ export const loadWorkTaskDiscussion = Effect.fn("WorkTaskDiscussion.load")(funct
         "This discussion is no longer attached to the task. Reopen it to refresh its sources.",
     });
   let context: WorkTaskDiscussion;
+  let githubIssue: GitHubIssueDetail | null = null;
   if (source.kind === "github") {
     yield* request(WS_METHODS.githubIssuesMutate, { kind: "refresh", ...source.reference });
     const issue = yield* request(WS_METHODS.githubIssuesGet, source.reference);
@@ -49,6 +51,7 @@ export const loadWorkTaskDiscussion = Effect.fn("WorkTaskDiscussion.load")(funct
         code: "invalid",
         message: issue.syncError ?? "Could not refresh issue comments.",
       });
+    githubIssue = issue;
     context = discussion(
       source,
       issue.comments
@@ -79,7 +82,7 @@ export const loadWorkTaskDiscussion = Effect.fn("WorkTaskDiscussion.load")(funct
       message:
         "The task's sources changed while loading. Reopen the task to review its current context.",
     });
-  return { context, task: current };
+  return { context, task: current, githubIssue };
 });
 export function workTaskPromptWithDiscussion(
   prompt: string,

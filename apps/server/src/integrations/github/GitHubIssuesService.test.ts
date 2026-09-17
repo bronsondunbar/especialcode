@@ -39,6 +39,11 @@ const setup = Effect.gen(function* () {
     return { ...found, commentsFetchedAt: "2026-01-02T00:00:00.000Z" };
   });
   const adapter = GitHubIssuesAdapter.of({
+    repositories: () =>
+      Effect.succeed({
+        repositories: [{ repository: "org-one/private", private: true }],
+        partialAccess: false,
+      }),
     comment: () => Effect.die("unused"),
     viewer: () => Effect.succeed({ id: 1, login: "alice" }),
     assigned: () =>
