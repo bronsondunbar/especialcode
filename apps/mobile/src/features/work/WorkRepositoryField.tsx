@@ -1,3 +1,4 @@
+import { RepositoryFolderPicker } from "./RepositoryFolderPicker";
 import { useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import * as Cause from "effect/Cause";
@@ -6,6 +7,9 @@ import {
   createWorkItemAtoms,
   workTaskProjectId,
   workTaskGitHubRepository,
+  workRepositoryValue,
+  workRepositoryProjectId,
+  workRepositoryChoices,
 } from "@t3tools/client-runtime/state/work-items";
 import { ProjectId, type EnvironmentId, type WorkItem } from "@t3tools/contracts";
 import { View } from "react-native";
@@ -24,9 +28,21 @@ export function useWorkTaskRepository(environmentId: EnvironmentId, item: WorkIt
   );
   const [selection, setProjectId] = useState<string | null>(null);
   const githubRepository = workTaskGitHubRepository(item);
-  const chosen = item ? workTaskProjectId(item, projects) : "";
-  const value = selection ?? (chosen || (githubRepository ? `github:${githubRepository}` : ""));
-  const projectId = projects.find((project) => project.id === value)?.id ?? null;
+  const savedProject = projects.find((project) => project.id === item?.projectId);
+  const inferredProject = projects.find(
+    (project) => project.id === (item ? workTaskProjectId(item, projects) : ""),
+  );
+  const selectedProject = projects.find((project) => project.id === selection);
+  const value =
+    (selectedProject ? workRepositoryValue(selectedProject) : selection) ??
+    (savedProject
+      ? workRepositoryValue(savedProject)
+      : githubRepository
+        ? `github:${githubRepository.toLowerCase()}`
+        : inferredProject
+          ? workRepositoryValue(inferredProject)
+          : "");
+  const projectId = workRepositoryProjectId(value, projects, item?.projectId);
   return { environmentId, projects, projectId, value, setProjectId };
 }
 
@@ -42,6 +58,8 @@ export function WorkRepositoryField({
   const clone = useAtomCommand(workItems.cloneRepository, { reportFailure: false });
   const [filter, setFilter] = useState("");
   const [destination, setDestination] = useState("");
+  const [locationMode, setLocationMode] = useState<"existing" | "clone">("existing");
+  const [existingPath, setExistingPath] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState<{
@@ -51,17 +69,17 @@ export function WorkRepositoryField({
   } | null>(null);
   const remote = value.startsWith("github:") ? value.slice(7) : null;
   const repositories = query.data?.repositories ?? [];
-  const matchingLocal = remote
-    ? projects.filter(
-        (project) =>
-          project.repositoryIdentity?.canonicalKey.toLowerCase() ===
-          `github.com/${remote}`.toLowerCase(),
-      )
-    : [];
+  const project = projects.find((project) => project.id === projectId);
+  const choices = workRepositoryChoices(projects, repositories, value);
+  const [changing, setChanging] = useState(false);
   const search = filter.trim().toLowerCase();
+  const destinationPath = destination || (remote ? `~/Projects/${remote}` : "");
   const change = (next: string) => {
-    setProjectId(next);
+    const local = projects.find((project) => project.id === next);
+    setProjectId(local ? workRepositoryValue(local) : next);
+    setChanging(false);
     setDestination("");
+    setExistingPath("");
     setRetry(null);
     setError(null);
   };
@@ -77,7 +95,9 @@ export function WorkRepositoryField({
       environmentId,
       input: {
         repository: remote,
-        destinationPath: destination.trim(),
+        destinationPath: locationMode === "existing" ? existingPath.trim() : destinationPath.trim(),
+        useExisting: locationMode === "existing",
+        projects: projects.map(({ id, workspaceRoot }) => ({ id, workspaceRoot })),
         ...project,
         ...(retry ? { clonedCwd: retry.cwd } : {}),
       },
@@ -89,129 +109,152 @@ export function WorkRepositoryField({
     }
     if (!result.value.registered) {
       setRetry({ ...project, cwd: result.value.cwd });
-      setError(`Cloned to ${result.value.cwd}, but could not add the project. Retry adding it.`);
+      setError(
+        `Repository found at ${result.value.cwd}, but could not add the project. Retry adding it.`,
+      );
       return;
     }
     change(result.value.projectId);
   };
   return (
     <View className="gap-2">
-      <TextInput
-        accessibilityLabel="Filter repositories"
-        className="rounded-lg border border-border p-3 text-foreground"
-        placeholder="Filter local and GitHub repositories"
-        value={filter}
-        onChangeText={setFilter}
-        editable={!disabled && !pending}
-      />
-      <ControlPillMenu
-        title="Repository"
-        actions={[
-          ...projects
-            .filter(
-              (project) =>
-                project.id === value ||
-                `${project.title} ${project.workspaceRoot}`.toLowerCase().includes(search),
-            )
-            .map((project) => ({
-              id: project.id,
-              title: `Local: ${project.title} — ${project.workspaceRoot}`,
-              state: project.id === value ? ("on" as const) : ("off" as const),
-            })),
-          ...repositories
-            .filter(
-              (repo) =>
-                repo.repository === remote || repo.repository.toLowerCase().includes(search),
-            )
-            .map((repo) => ({
-              id: `github:${repo.repository}`,
-              title: `GitHub: ${repo.repository}${repo.private ? " · Private" : ""}`,
-              state: repo.repository === remote ? ("on" as const) : ("off" as const),
-            })),
-        ]}
-        onPressAction={({ nativeEvent }) => {
-          if (!disabled && !pending) change(nativeEvent.event);
-        }}
-      >
+      <View className="flex-row items-center justify-between gap-3 rounded-lg border border-border p-3">
+        <View className="min-w-0 flex-1">
+          <Text className="text-xs text-muted-foreground">Repository</Text>
+          <Text numberOfLines={1} className="font-medium">
+            {choices.find((choice) => choice.value === value)?.label ?? "Choose a repository"}
+          </Text>
+        </View>
         <ControlPill
+          label={changing ? "Done" : "Change"}
           disabled={disabled || pending}
-          label={`Repository: ${remote ?? projects.find((project) => project.id === projectId)?.title ?? "Choose"}`}
+          onPress={() => setChanging((open) => !open)}
         />
-      </ControlPillMenu>
-      {query.isPending && (
-        <Text className="text-sm text-muted-foreground">Loading GitHub repositories…</Text>
+      </View>
+      {(changing || !value) && (
+        <View className="gap-2">
+          <TextInput
+            accessibilityLabel="Filter repositories"
+            className="rounded-lg border border-border p-3 text-foreground"
+            placeholder="Find a repository"
+            value={filter}
+            onChangeText={setFilter}
+            editable={!disabled && !pending}
+          />
+          <ControlPillMenu
+            title="Repository"
+            actions={choices
+              .filter(
+                (choice) => choice.value === value || choice.label.toLowerCase().includes(search),
+              )
+              .map((choice) => ({
+                id: choice.value,
+                title: choice.label,
+                state: choice.value === value ? ("on" as const) : ("off" as const),
+              }))}
+            onPressAction={({ nativeEvent }) => {
+              if (!disabled && !pending) change(nativeEvent.event);
+            }}
+          >
+            <ControlPill label="Choose a repository" disabled={disabled || pending} />
+          </ControlPillMenu>
+          <ControlPill
+            label="Refresh repositories"
+            disabled={query.isPending || pending}
+            onPress={query.refresh}
+          />
+        </View>
       )}
-      {query.error && <Text className="text-sm text-destructive">{query.error}</Text>}
-      {query.data && !query.data.login && (
+      {query.isPending && (changing || !value) && (
+        <Text className="text-sm text-muted-foreground">Loading repositories…</Text>
+      )}
+      {query.error && !project && (changing || locationMode === "clone") && (
+        <Text className="text-sm text-destructive">{query.error}</Text>
+      )}
+      {query.data && !query.data.login && !project && locationMode === "clone" && (
         <Text className="text-sm text-muted-foreground">
-          Connect GitHub in Work → GitHub to browse your account’s repositories.
+          Connect GitHub in Work → GitHub to clone this repository.
         </Text>
       )}
-      {query.data?.partialAccess && (
+      {query.data?.partialAccess && changing && (
         <Text className="text-sm text-muted-foreground">
-          Some organization repositories are missing. Authorize your token for organization SSO in
-          GitHub.
+          Some repositories need organization SSO authorization for your token.
         </Text>
       )}
-      <ControlPill
-        label="Refresh repositories"
-        disabled={query.isPending || pending}
-        onPress={query.refresh}
-      />
-      {remote &&
-        (matchingLocal.length ? (
-          <View className="gap-2">
-            <Text className="text-sm text-muted-foreground">
-              This repository is already local. Choose a checkout:
-            </Text>
-            {matchingLocal.map((project) => (
-              <ControlPill
-                key={project.id}
-                label={`Use ${project.workspaceRoot}`}
-                disabled={disabled || pending}
-                onPress={() => change(project.id)}
-              />
-            ))}
-          </View>
-        ) : (
-          <View className="gap-2 rounded-lg border border-border p-3">
-            <Text className="text-sm text-muted-foreground">
-              Clone this repository onto the connected server before starting an agent.
-            </Text>
-            <Text>Destination folder on server</Text>
-            <TextInput
-              accessibilityLabel="Destination folder on server"
-              className="rounded-lg border border-border p-3 text-foreground"
-              placeholder={`~/Projects/${remote}`}
-              value={destination}
-              editable={!disabled && !pending && !retry}
-              onChangeText={setDestination}
+      {project && (
+        <Text className="text-xs text-muted-foreground">
+          {changing ? `Saved checkout: ${project.workspaceRoot}` : "Saved checkout will be reused."}
+        </Text>
+      )}
+      {remote && !project && (
+        <View className="gap-3">
+          <View className="flex-row flex-wrap gap-2">
+            <ControlPill
+              label={
+                locationMode === "existing"
+                  ? "✓ Use existing repository"
+                  : "Use existing repository"
+              }
+              disabled={disabled || pending || !!retry}
+              onPress={() => {
+                setLocationMode("existing");
+                setError(null);
+              }}
             />
             <ControlPill
-              disabled={disabled || pending || !destination.trim() || !query.data?.login}
-              onPress={() => void cloneSelected()}
-              label={
-                pending
-                  ? "Preparing repository…"
-                  : retry
-                    ? "Retry adding project"
-                    : "Clone and use repository"
-              }
+              label={locationMode === "clone" ? "✓ Clone new" : "Clone new"}
+              disabled={disabled || pending || !!retry}
+              onPress={() => {
+                setLocationMode("clone");
+                setError(null);
+              }}
             />
           </View>
-        ))}
+          <Text className="text-sm text-muted-foreground">
+            Choose a checkout anywhere on the connected server. It will be remembered for future
+            issues.
+          </Text>
+          {locationMode === "existing" ? (
+            <RepositoryFolderPicker
+              environmentId={environmentId}
+              value={existingPath}
+              disabled={disabled || pending || !!retry}
+              onSelect={setExistingPath}
+            />
+          ) : (
+            <View className="gap-2">
+              <Text>Clone folder on this server</Text>
+              <TextInput
+                accessibilityLabel="Clone folder on this server"
+                className="rounded-lg border border-border p-3 text-foreground"
+                value={destinationPath}
+                editable={!disabled && !pending && !retry}
+                onChangeText={setDestination}
+              />
+            </View>
+          )}
+          <ControlPill
+            disabled={
+              disabled ||
+              pending ||
+              (locationMode === "existing"
+                ? !existingPath.trim()
+                : !destinationPath.trim() || !query.data?.login)
+            }
+            onPress={() => void cloneSelected()}
+            label={
+              pending
+                ? "Preparing repository…"
+                : retry
+                  ? "Retry adding project"
+                  : locationMode === "existing"
+                    ? "Use this repository"
+                    : "Clone and use repository"
+            }
+          />
+        </View>
+      )}
       {error && <Text className="text-sm text-destructive">{error}</Text>}
-      {!value && (
-        <Text className="text-sm text-muted-foreground">
-          Choose the repository the agent should work in.
-        </Text>
-      )}
-      {projectId && (
-        <Text className="text-sm text-muted-foreground">
-          Manage local entries in the web or desktop app under Settings → Projects. Removing a
-          project also removes its threads, but keeps files on disk.
-        </Text>
-      )}
     </View>
   );
 }

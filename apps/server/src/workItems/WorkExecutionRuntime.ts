@@ -1,3 +1,4 @@
+import { SourceControlRepositoryService } from "../sourceControl/SourceControlRepositoryService.ts";
 import { PullRequestService } from "../pullRequest/PullRequestService.ts";
 import {
   CommandId,
@@ -64,6 +65,7 @@ export function workExecutionPrompt(
 
 export const make = Effect.gen(function* () {
   const git = yield* GitWorkflowService;
+  const repositories = yield* SourceControlRepositoryService;
   const prs = yield* PullRequestService;
   const setup = yield* ProjectSetupScriptRunner;
   const query = yield* ProjectionSnapshotQuery;
@@ -156,6 +158,10 @@ export const make = Effect.gen(function* () {
     const cwd = created.worktree.path;
     yield* onPath(cwd);
     if (submoduleError) return yield* invalid(submoduleError);
+    if (!run.automation)
+      yield* repositories
+        .publishBranch({ cwd, branch: created.worktree.refName })
+        .pipe(Effect.mapError((error) => invalid(error.detail)));
     yield* engine.dispatch({
       type: "thread.create",
       commandId: CommandId.make(`execution-thread:${run.id}`),

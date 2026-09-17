@@ -5,7 +5,7 @@ Assigning an agent or importing external context does not start execution.
 
 ## Plan with an agent
 
-Open a task and expand **Plan with an agent**. Choose its local repository, an available
+Open a task and select the **Plan** tab. Review its preselected repository, choose an available
 provider and model, optionally add constraints, and start planning. A matching GitHub repository
 is preselected when available. No separate project assignment or move to Ready is needed. You can close
 the view or disconnect while it runs. The result moves the item to **Awaiting Approval**, shown
@@ -36,7 +36,7 @@ silently repeats a provider call.
 
 ## Execute a task
 
-Open a task and expand **Execute with an agent**. Choose a local repository, agent and model, then execute.
+Open a task and select the **Execute** tab. Review its repository, choose an agent and model, then execute.
 A plan is optional: the prompt is generated from the task title and description. Add
 **Additional guidance** only if you have extra instructions. Direct execution can start from
 Inbox, Backlog, Ready, Awaiting Approval or Blocked. The selected project is assigned when execution starts.
@@ -46,7 +46,9 @@ To execute a saved plan, select **Use the existing plan** and provide validation
 the task after approval requires editing or regenerating the plan and approving it again.
 
 Execution creates a dedicated branch and worktree from the WorkItem's branch, or the current
-commit when no branch is set. Commit or stash changes in the project checkout first. Existing
+commit when no branch is set. For manual execution, the branch is published to the remote before
+the agent starts; GitHub uses your connected account. Saved clones are reused across issues.
+Commit or stash changes in the project checkout first. Existing
 project setup runs before the agent starts; a failed setup blocks the WorkItem. Execution
 supports available T3 providers through their normal runtime and keeps provider approvals
 in the agent thread. Planning's provider restrictions do not restrict execution selection.

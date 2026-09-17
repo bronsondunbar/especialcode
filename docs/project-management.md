@@ -18,10 +18,19 @@ vp run dev
 
 Open the pairing URL printed by the runner. Add a project rooted at a local repository on
 that environment and configure an installed provider in Settings. Open **Work**, create a
-task and select its repository when planning or executing. The picker includes local projects
-and repositories accessible to your connected GitHub account, including organizations. For a
-repository that is not local, choose a destination folder on the connected server and clone it
-from the picker. You can also do this when creating a thread from a task.
+task and choose Plan or Execute. GitHub issues preselect their repository; use Change to work
+in another repository. Saved clones are reused automatically across issues and app restarts.
+For a checkout you already have, choose **Use existing repository** and browse to its folder
+or enter its path. It can live anywhere on the connected server. The app checks that its
+primary Git remote matches the selected repository and remembers the location.
+Otherwise, choose **Clone new** to clone it once. The suggested location is
+`~/Projects/owner/repository` on the connected server; you can change it before cloning.
+
+Creating a thread from a task creates a new branch in a separate local worktree and publishes
+the branch to the repository’s remote. GitHub uses the account connected in Work and requires
+write access to the repository. Choose the base branch and review the suggested branch name.
+If remote publication fails, the local branch is retained for retry. Local-only repositories
+remain usable without a remote.
 
 Execute directly from the task’s title and description, optionally adding guidance, or generate
 and review a plan first. See [Agent orchestration](agent-orchestration.md).

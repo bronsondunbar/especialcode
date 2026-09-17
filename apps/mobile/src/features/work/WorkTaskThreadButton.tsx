@@ -150,7 +150,6 @@ function TaskThreadForm({
   const [vercel, setVercel] = useState<{ projectId: string; selection: VercelSelection } | null>(
     null,
   );
-  const [newBranch, setNewBranch] = useState(true);
   const [branchName, setBranchName] = useState(() => workTaskBranchName(task));
   const [baseSelection, setBaseSelection] = useState("");
   const branches = useEnvironmentQuery(
@@ -165,7 +164,7 @@ function TaskThreadForm({
     branches.data?.find(({ current }) => current)?.name ??
     branches.data?.[0]?.name ??
     "";
-  const branchError = newBranch ? workTaskBranchError(branchName) : null;
+  const branchError = workTaskBranchError(branchName);
   const prepared = useRef<WorkTaskThreadInput["worktree"]>(undefined);
   const prepareBranch = useAtomCommand(atoms.prepareBranch, { reportFailure: false });
   const [providerId, setProviderId] = useState(task.assignedAgent ?? "");
@@ -228,7 +227,7 @@ function TaskThreadForm({
     setPending(true);
     setError(null);
     try {
-      if (newBranch && !prepared.current) {
+      if (!prepared.current) {
         if (!project || !baseBranch || branchError) return;
         const result = await prepareBranch({
           environmentId,
@@ -295,50 +294,42 @@ function TaskThreadForm({
           setBaseSelection("");
         }}
       />
-      <Choice
-        title="Branch mode"
-        value={newBranch ? "new" : "checkout"}
-        options={[
-          { id: "new", title: "New branch in a worktree" },
-          { id: "checkout", title: "Current checkout" },
-        ]}
-        disabled={pending || hasAttempt}
-        onChange={(value) => setNewBranch(value === "new")}
-      />
-      {newBranch && (
-        <>
-          <Choice
-            title="Base branch"
-            value={baseBranch}
-            options={(branches.data ?? []).map((ref) => ({ id: ref.name, title: ref.name }))}
-            disabled={pending || hasAttempt || branches.isPending}
-            onChange={setBaseSelection}
-          />
-          {branches.isPending && <Text>Loading branches…</Text>}
-          <Text>New branch name</Text>
-          <TextInput
-            accessibilityLabel="New branch name"
-            value={branchName}
-            editable={!pending && !hasAttempt}
-            autoCapitalize="none"
-            autoCorrect={false}
-            onChangeText={setBranchName}
-            className="rounded-lg border border-border p-3 text-foreground"
-          />
-          {branchError && <Text className="text-destructive">{branchError}</Text>}
-          {branches.error && (
-            <Text accessibilityRole="alert" className="text-destructive">
-              {branches.error}
-            </Text>
-          )}
-          {!branches.isPending && project && !branches.error && !branches.data?.length && (
-            <Text>
-              This repository has no base branches. Select another repository or use its current
-              checkout.
-            </Text>
-          )}
-        </>
-      )}
+      <Text className="text-sm text-muted-foreground">
+        A new branch will be created locally and on the remote.
+      </Text>
+      <>
+        <Choice
+          title="Base branch"
+          value={baseBranch}
+          options={(branches.data ?? []).map((ref) => ({ id: ref.name, title: ref.name }))}
+          disabled={pending || hasAttempt || branches.isPending}
+          onChange={setBaseSelection}
+        />
+        {branches.isPending && <Text>Loading branches…</Text>}
+        <Text>New branch name</Text>
+        <TextInput
+          accessibilityLabel="New branch name"
+          value={branchName}
+          editable={!pending && !hasAttempt}
+          autoCapitalize="none"
+          autoCorrect={false}
+          onChangeText={setBranchName}
+          className="rounded-lg border border-border p-3 text-foreground"
+        />
+        {branchError && <Text className="text-destructive">{branchError}</Text>}
+        {branches.error && (
+          <Text accessibilityRole="alert" className="text-destructive">
+            {branches.error}
+          </Text>
+        )}
+        {!branches.isPending && project && !branches.error && !branches.data?.length && (
+          <Text>
+            This repository has no base branches. Select another repository or add an initial
+            commit.
+          </Text>
+        )}
+      </>
+
       {project && (
         <VercelProjectField
           key={project.id}
@@ -435,7 +426,7 @@ function TaskThreadForm({
       )}
       {!providers.length && <Text>Enable an agent provider before starting a thread.</Text>}
       {task.archivedAt && <Text>Restore this task before starting a linked thread.</Text>}
-      {hasAttempt && newBranch && !created && (
+      {hasAttempt && !created && (
         <Text className="text-sm text-muted-foreground">
           Branch {branchName} is ready. Retry will use it. Closing this dialog keeps the branch and
           worktree.
@@ -462,8 +453,10 @@ function TaskThreadForm({
           disabled={
             pending ||
             !projects.some((project) => project.id === projectId) ||
-            (newBranch &&
-              (!baseBranch || !!branchError || !!branches.error || branches.isPending)) ||
+            !baseBranch ||
+            !!branchError ||
+            !!branches.error ||
+            branches.isPending ||
             !selectedModel ||
             !prompt.trim() ||
             !!task.archivedAt

@@ -175,6 +175,11 @@ export const startWorkTaskThread = Effect.fn("WorkTaskThread.start")(function* (
       code: "conflict",
       message: "This task changed. Close this dialog and reopen it to use the latest version.",
     });
+  if (input.worktree)
+    yield* request(WS_METHODS.sourceControlPublishBranch, {
+      cwd: input.worktree.path,
+      branch: input.worktree.refName,
+    });
   yield* request(ORCHESTRATION_WS_METHODS.dispatchCommand, {
     type: "thread.create",
     commandId: CommandId.make(`work-thread:${input.threadId}`),

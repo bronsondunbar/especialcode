@@ -79,6 +79,7 @@ const setup = Effect.fn("TestWorkTaskThread.setup")(function* (
   options: {
     current?: WorkItem;
     failCreate?: boolean;
+    failPublish?: boolean;
     failLink?: boolean;
     failBranch?: boolean;
     failVercel?: boolean;
@@ -86,12 +87,19 @@ const setup = Effect.fn("TestWorkTaskThread.setup")(function* (
   } = {},
 ) {
   let current = options.current ?? task;
+  const publications: Array<{ cwd: string; branch: string }> = [];
   const commands: ClientOrchestrationCommand[] = [];
   const mutations: WorkItemMutation[] = [];
   const worktrees: VcsCreateWorktreeInput[] = [];
   const refQueries: VcsListRefsInput[] = [];
   const vercelLinks: VercelLinkInput[] = [];
   const client = {
+    [WS_METHODS.sourceControlPublishBranch]: (input: { cwd: string; branch: string }) =>
+      Effect.gen(function* () {
+        publications.push(input);
+        if (options.failPublish)
+          return yield* new WorkItemError({ code: "invalid", message: "Remote branch failed" });
+      }),
     [WS_METHODS.vercelLink]: (input: VercelLinkInput) =>
       Effect.gen(function* () {
         vercelLinks.push(input);
@@ -164,6 +172,7 @@ const setup = Effect.fn("TestWorkTaskThread.setup")(function* (
   });
   return {
     commands,
+    publications,
     vercelLinks,
     mutations,
     worktrees,
@@ -402,5 +411,19 @@ it.effect("allows opting out of the inherited Vercel connection", () =>
     expect(harness.vercelLinks).toEqual([
       { kind: "unlink", projectId: input.projectId, threadId: input.threadId },
     ]);
+  }),
+);
+
+it.effect("publishes the prepared branch before creating the linked thread", () =>
+  Effect.gen(function* () {
+    const worktree = { path: "/worktrees/issue", refName: "codex/issue" };
+    const harness = yield* setup({ input: { ...input, worktree } });
+    yield* harness.run;
+    expect(harness.publications).toEqual([{ cwd: worktree.path, branch: worktree.refName }]);
+    expect(harness.commands[0]).toMatchObject({ type: "thread.create", branch: worktree.refName });
+    const failed = yield* setup({ input: { ...input, worktree }, failPublish: true });
+    yield* failed.run.pipe(Effect.flip);
+    expect(failed.commands).toHaveLength(0);
+    expect(failed.mutations).toHaveLength(0);
   }),
 );

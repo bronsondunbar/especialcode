@@ -321,6 +321,9 @@ import {
   SourceControlCloneRepositoryResult,
   SourceControlDiscoveryResult,
   SourceControlPublishRepositoryInput,
+  SourceControlPublishBranchInput,
+  SourceControlExistingRepositoryInput,
+  SourceControlExistingRepositoryResult,
   SourceControlPublishRepositoryResult,
   SourceControlRepositoryError,
   SourceControlRepositoryInfo,
@@ -516,7 +519,9 @@ export const WS_METHODS = {
 
   // Source control methods
   sourceControlLookupRepository: "sourceControl.lookupRepository",
+  sourceControlExistingRepository: "sourceControl.existingRepository",
   sourceControlCloneRepository: "sourceControl.cloneRepository",
+  sourceControlPublishBranch: "sourceControl.publishBranch",
   sourceControlPublishRepository: "sourceControl.publishRepository",
 
   // Streaming subscriptions
@@ -1719,7 +1724,17 @@ export const WsRpcGroup = RpcGroup.make(
   WsPullRequestsLabelCandidatesRpc,
   WsPullRequestsSetLabelsRpc,
   WsSourceControlLookupRepositoryRpc,
+  Rpc.make(WS_METHODS.sourceControlExistingRepository, {
+    payload: SourceControlExistingRepositoryInput,
+    success: SourceControlExistingRepositoryResult,
+    error: Schema.Union([SourceControlRepositoryError, EnvironmentAuthorizationError]),
+  }),
   WsSourceControlCloneRepositoryRpc,
+  Rpc.make(WS_METHODS.sourceControlPublishBranch, {
+    payload: SourceControlPublishBranchInput,
+    success: Schema.Void,
+    error: Schema.Union([SourceControlRepositoryError, EnvironmentAuthorizationError]),
+  }),
   WsSourceControlPublishRepositoryRpc,
   WsProjectsListEntriesRpc,
   WsProjectsReadFileRpc,

@@ -188,3 +188,16 @@ export class SourceControlRepositoryError extends Schema.TaggedError<SourceContr
     return `Source control repository operation ${this.operation} failed for ${this.provider}: ${this.detail}`;
   }
 }
+
+export const SourceControlPublishBranchInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  branch: TrimmedNonEmptyString,
+});
+export type SourceControlPublishBranchInput = typeof SourceControlPublishBranchInput.Type;
+
+export const SourceControlExistingRepositoryInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  repository: GitHubRepositoryKey.fields.repository,
+});
+export type SourceControlExistingRepositoryInput = typeof SourceControlExistingRepositoryInput.Type;
+export const SourceControlExistingRepositoryResult = Schema.Struct({ cwd: TrimmedNonEmptyString });

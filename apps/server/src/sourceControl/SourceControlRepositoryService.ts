@@ -1,3 +1,7 @@
+import {
+  normalizeGitRemoteUrl,
+  parseGitHubRepositoryNameWithOwnerFromRemoteUrl,
+} from "@t3tools/shared/git";
 import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
 import { githubAccountSecretName } from "../auth/githubAccountSecret.ts";
 import * as Option from "effect/Option";
@@ -10,6 +14,8 @@ import * as Schema from "effect/Schema";
 
 import {
   SourceControlRepositoryError,
+  type SourceControlExistingRepositoryInput,
+  type SourceControlPublishBranchInput,
   type SourceControlCloneRepositoryInput,
   type SourceControlCloneRepositoryResult,
   type SourceControlCloneProtocol,
@@ -30,6 +36,12 @@ const isSourceControlRepositoryError = Schema.is(SourceControlRepositoryError);
 export class SourceControlRepositoryService extends Context.Service<
   SourceControlRepositoryService,
   {
+    readonly existingRepository: (
+      input: SourceControlExistingRepositoryInput,
+    ) => Effect.Effect<{ cwd: string }, SourceControlRepositoryError>;
+    readonly publishBranch: (
+      input: SourceControlPublishBranchInput,
+    ) => Effect.Effect<void, SourceControlRepositoryError>;
     readonly lookupRepository: (
       input: SourceControlRepositoryLookupInput,
     ) => Effect.Effect<SourceControlRepositoryInfo, SourceControlRepositoryError>;
@@ -78,6 +90,23 @@ function selectRemoteUrl(
     case "auto":
       return urls.sshUrl;
   }
+}
+
+function githubEnvironment(token: Uint8Array): NodeJS.ProcessEnv {
+  // Process-only credentials: never persist the token in the URL or Git config.
+  const credential = Buffer.from(`x-access-token:${new TextDecoder().decode(token)}`).toString(
+    "base64",
+  );
+  return {
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_CONFIG_COUNT: "3",
+    GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
+    GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${credential}`,
+    GIT_CONFIG_KEY_1: "http.followRedirects",
+    GIT_CONFIG_VALUE_1: "false",
+    GIT_CONFIG_KEY_2: "credential.helper",
+    GIT_CONFIG_VALUE_2: "",
+  };
 }
 
 /** @public Service construction is part of the canonical Effect module API. */
@@ -172,6 +201,52 @@ export const make = Effect.gen(function* () {
     },
   );
 
+  const existingRepository = Effect.fn("SourceControlRepositoryService.existingRepository")(
+    function* (input: SourceControlExistingRepositoryInput) {
+      const fail = (detail: string) =>
+        new SourceControlRepositoryError({
+          operation: "existingRepository",
+          provider: "github",
+          detail,
+        });
+      const cwd = path.resolve(expandHomePathWith(input.cwd.trim(), path));
+      if (!(yield* fileSystem.exists(cwd)))
+        return yield* fail(
+          "That folder does not exist on the connected server. Select the folder containing your checkout.",
+        );
+      const root = yield* git
+        .execute({
+          cwd,
+          operation: "existingRepository.root",
+          args: ["rev-parse", "--show-toplevel"],
+        })
+        .pipe(
+          Effect.mapError(() =>
+            fail("That folder is not inside a Git checkout. Select an existing repository."),
+          ),
+        );
+      const workspaceRoot = root.stdout.trim();
+      if (!workspaceRoot || !(yield* fileSystem.exists(workspaceRoot)))
+        return yield* fail("The repository root is unavailable. Select another folder.");
+      const remote = yield* git
+        .resolvePrimaryRemoteName(workspaceRoot)
+        .pipe(
+          Effect.mapError(() =>
+            fail("This checkout has no remote. Add its GitHub remote before selecting it."),
+          ),
+        );
+      const remoteUrl = yield* git.readConfigValue(workspaceRoot, `remote.${remote}.url`);
+      if (
+        !remoteUrl ||
+        normalizeGitRemoteUrl(remoteUrl) !== `github.com/${input.repository.toLowerCase()}`
+      )
+        return yield* fail(
+          `This checkout’s primary remote does not match ${input.repository}. Select its checkout or change the selected repository.`,
+        );
+      return { cwd: workspaceRoot };
+    },
+  );
+
   const cloneRepository = Effect.fn("SourceControlRepositoryService.cloneRepository")(function* (
     input: SourceControlCloneRepositoryInput,
   ) {
@@ -197,20 +272,7 @@ export const make = Effect.gen(function* () {
         url: `https://github.com/${input.connectedGitHubRepository}`,
         sshUrl: `git@github.com:${input.connectedGitHubRepository}.git`,
       };
-      // Process-only credentials: never persist the token in the URL or Git config.
-      const credential = Buffer.from(
-        `x-access-token:${new TextDecoder().decode(token.value)}`,
-      ).toString("base64");
-      cloneEnv = {
-        GIT_TERMINAL_PROMPT: "0",
-        GIT_CONFIG_COUNT: "3",
-        GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
-        GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${credential}`,
-        GIT_CONFIG_KEY_1: "http.followRedirects",
-        GIT_CONFIG_VALUE_1: "false",
-        GIT_CONFIG_KEY_2: "credential.helper",
-        GIT_CONFIG_VALUE_2: "",
-      };
+      cloneEnv = githubEnvironment(token.value);
     } else if (input.provider && input.repository) {
       repository = yield* lookupRepository({
         provider: input.provider,
@@ -315,7 +377,106 @@ export const make = Effect.gen(function* () {
     },
   );
 
+  const publishBranch = Effect.fn("SourceControlRepositoryService.publishBranch")(function* (
+    input: SourceControlPublishBranchInput,
+  ) {
+    const fail = (detail: string) =>
+      new SourceControlRepositoryError({ operation: "publishBranch", provider: "github", detail });
+    yield* git.execute({
+      cwd: input.cwd,
+      operation: "publishBranch.validate",
+      args: ["check-ref-format", `refs/heads/${input.branch}`],
+    });
+    const head = yield* git.execute({
+      cwd: input.cwd,
+      operation: "publishBranch.head",
+      args: ["symbolic-ref", "--short", "HEAD"],
+    });
+    if (head.stdout.trim() !== input.branch)
+      return yield* fail("The checkout branch changed. Reopen the task and retry.");
+    const remotes = yield* git.execute({
+      cwd: input.cwd,
+      operation: "publishBranch.remotes",
+      args: ["remote"],
+    });
+    if (!remotes.stdout.trim()) return;
+    const remote = yield* git.resolvePrimaryRemoteName(input.cwd);
+    const url = yield* git.readConfigValue(input.cwd, `remote.${remote}.url`);
+    if (!url) return; // A local-only repository has no remote branch to create.
+    const repository = parseGitHubRepositoryNameWithOwnerFromRemoteUrl(url);
+    let env: NodeJS.ProcessEnv = { GIT_TERMINAL_PROMPT: "0" };
+    if (repository) {
+      const token = yield* secrets.get(githubAccountSecretName);
+      if (Option.isNone(token))
+        return yield* fail("Connect GitHub before creating the remote branch.");
+      env = githubEnvironment(token.value);
+    }
+    const target = repository ? `https://github.com/${repository}.git` : url;
+    const ref = `refs/heads/${input.branch}`;
+    const sha = (yield* git.execute({
+      cwd: input.cwd,
+      operation: "publishBranch.commit",
+      args: ["rev-parse", "--verify", ref],
+    })).stdout.trim();
+    yield* Effect.gen(function* () {
+      const existing = yield* git.execute({
+        cwd: input.cwd,
+        operation: "publishBranch.remote",
+        args: ["ls-remote", "--heads", target, ref],
+        env,
+      });
+      const remoteSha = existing.stdout.trim().split(/\s+/)[0];
+      if (remoteSha && remoteSha !== sha)
+        return yield* fail(
+          "That branch already exists on the remote with different commits. Choose another branch name.",
+        );
+      if (!remoteSha)
+        yield* git.execute({
+          cwd: input.cwd,
+          operation: "publishBranch.push",
+          env,
+          timeoutMs: 120_000,
+          // The empty lease allows creation only, even if another client creates the branch concurrently.
+          args: [
+            "push",
+            "--porcelain",
+            `--force-with-lease=${ref}:`,
+            "--",
+            target,
+            `${ref}:${ref}`,
+          ],
+        });
+    }).pipe(
+      Effect.mapError((error) =>
+        isSourceControlRepositoryError(error)
+          ? error
+          : fail(
+              "Could not create the remote branch. Check repository write access and retry; the local branch is retained.",
+            ),
+      ),
+    );
+    yield* git.execute({
+      cwd: input.cwd,
+      operation: "publishBranch.upstream",
+      args: ["config", `branch.${input.branch}.remote`, remote],
+    });
+    yield* git.execute({
+      cwd: input.cwd,
+      operation: "publishBranch.upstream",
+      args: ["config", `branch.${input.branch}.merge`, ref],
+    });
+    yield* git.execute({
+      cwd: input.cwd,
+      operation: "publishBranch.tracking",
+      args: ["update-ref", `refs/remotes/${remote}/${input.branch}`, sha],
+    });
+  });
+
   return SourceControlRepositoryService.of({
+    existingRepository: (input) =>
+      existingRepository(input).pipe(mapRepositoryError("existingRepository", "github")),
+    publishBranch: (input) =>
+      publishBranch(input).pipe(mapRepositoryError("publishBranch", "github")),
     lookupRepository: (input) =>
       lookupRepository(input).pipe(mapRepositoryError("lookupRepository", input.provider)),
     cloneRepository: (input) =>

@@ -1,8 +1,10 @@
+import { SourceControlRepositoryService } from "../sourceControl/SourceControlRepositoryService.ts";
 import { PullRequestService } from "../pullRequest/PullRequestService.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
+  SourceControlRepositoryError,
   TurnId,
   type PullRequestDetail,
   type OrchestrationThread,
@@ -82,12 +84,25 @@ const setup = Effect.gen(function* () {
   const dirty = yield* Ref.make(false);
   const setupExit = yield* Ref.make(0);
   const commands: OrchestrationCommand[] = [];
-  const calls = { worktree: 0, setup: 0, publish: 0 };
+  const calls = { worktree: 0, setup: 0, publish: 0, branch: 0 };
+  const branchFailure = yield* Ref.make(false);
   const closed = yield* Ref.make(false);
   const projectRoot = yield* Ref.make("/repo");
   const runtime = yield* make.pipe(
     Effect.provide(
       Layer.mergeAll(
+        Layer.mock(SourceControlRepositoryService)({
+          publishBranch: () =>
+            Effect.gen(function* () {
+              calls.branch++;
+              if (yield* Ref.get(branchFailure))
+                return yield* new SourceControlRepositoryError({
+                  operation: "publishBranch",
+                  provider: "github",
+                  detail: "Remote branch failed",
+                });
+            }),
+        }),
         Layer.mock(GitWorkflowService)({
           invalidateLocalStatus: () => Effect.void,
           invalidateStatus: () => Effect.void,
@@ -184,7 +199,19 @@ const setup = Effect.gen(function* () {
     cwd,
     "git init --initial-branch=task/branch && git -c user.name=Test -c user.email=test@example.invalid commit --allow-empty -m initial",
   );
-  return { runtime, item, run, cwd, dirty, setupExit, commands, calls, closed, projectRoot };
+  return {
+    runtime,
+    item,
+    run,
+    cwd,
+    dirty,
+    setupExit,
+    commands,
+    calls,
+    closed,
+    projectRoot,
+    branchFailure,
+  };
 });
 for (const guidance of [undefined, "Preserve the public API"]) {
   it.effect(
@@ -427,4 +454,25 @@ it.effect("refuses a missing worktree or deleted execution branch while retainin
     );
     assert.strictEqual(ctx.commands.length, 0);
   }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+);
+
+it.effect(
+  "retains the local worktree and prevents agent startup if remote branch creation fails",
+  () =>
+    Effect.gen(function* () {
+      const ctx = yield* setup;
+      yield* Ref.set(ctx.branchFailure, true);
+      const retained: string[] = [];
+      const error = yield* ctx.runtime
+        .prepare(ctx.run, ctx.item, (path) =>
+          Effect.sync(() => {
+            retained.push(path);
+          }),
+        )
+        .pipe(Effect.flip);
+      assert.include(error.message, "Remote branch failed");
+      assert.strictEqual(ctx.calls.branch, 1);
+      assert.isAbove(retained.length, 0);
+      assert.isFalse(ctx.commands.some((command) => command.type === "thread.create"));
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
 );

@@ -2795,6 +2795,11 @@ const makeWsRpcLayer = (
               "rpc.aggregate": "source-control",
             },
           ),
+        [WS_METHODS.sourceControlExistingRepository]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.sourceControlExistingRepository,
+            sourceControlRepositories.existingRepository(input),
+          ),
         [WS_METHODS.sourceControlCloneRepository]: (input) =>
           observeRpcEffect(
             WS_METHODS.sourceControlCloneRepository,
@@ -2802,6 +2807,11 @@ const makeWsRpcLayer = (
             {
               "rpc.aggregate": "source-control",
             },
+          ),
+        [WS_METHODS.sourceControlPublishBranch]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.sourceControlPublishBranch,
+            sourceControlRepositories.publishBranch(input),
           ),
         [WS_METHODS.sourceControlPublishRepository]: (input) =>
           observeRpcEffect(

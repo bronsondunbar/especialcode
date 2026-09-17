@@ -1,5 +1,10 @@
 import { cloneWorkRepository } from "../operations/workRepository.ts";
-export { workTaskGitHubRepository } from "../operations/workRepository.ts";
+export {
+  workTaskGitHubRepository,
+  workRepositoryValue,
+  workRepositoryProjectId,
+  workRepositoryChoices,
+} from "../operations/workRepository.ts";
 import { loadThreadUpdateTargets } from "../operations/workTaskUpdate.ts";
 export { workTaskUpdateDraft } from "../operations/workTaskUpdate.ts";
 import { loadWorkTaskDiscussion } from "../operations/workTaskDiscussion.ts";

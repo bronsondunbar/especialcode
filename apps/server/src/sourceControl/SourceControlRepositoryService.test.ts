@@ -475,3 +475,192 @@ it.effect(
       );
     }).pipe(Effect.provide(NodeServices.layer)),
 );
+
+const branchSha = "1".repeat(40);
+const branchInput = { cwd: "/repo/worktree", branch: "codex/fix-issue" };
+function branchGit(
+  calls: GitVcsDriver.ExecuteGitInput[],
+  remoteSha = "",
+  noRemote = false,
+): Partial<GitVcsDriver.GitVcsDriver["Service"]> {
+  return {
+    resolvePrimaryRemoteName: () => Effect.succeed("origin"),
+    readConfigValue: () => Effect.succeed("git@github.com:org/private.git"),
+    execute: (input) =>
+      Effect.sync(() => {
+        calls.push(input);
+        const stdout =
+          input.operation === "publishBranch.head"
+            ? branchInput.branch
+            : input.operation === "publishBranch.remotes"
+              ? noRemote
+                ? ""
+                : "origin"
+              : input.operation === "publishBranch.commit"
+                ? branchSha
+                : input.operation === "publishBranch.remote"
+                  ? remoteSha
+                    ? `${remoteSha}\trefs/heads/${branchInput.branch}`
+                    : ""
+                  : "";
+        return { ...processOutput(), stdout };
+      }),
+  };
+}
+
+it.effect(
+  "creates the remote branch using the connected token with a creation-only lease and sets its upstream",
+  () => {
+    const calls: GitVcsDriver.ExecuteGitInput[] = [];
+    return Effect.gen(function* () {
+      const service = yield* SourceControlRepositoryService.SourceControlRepositoryService;
+      yield* service.publishBranch(branchInput);
+      const push = calls.find((call) => call.operation === "publishBranch.push")!;
+      assert.deepEqual(push.args, [
+        "push",
+        "--porcelain",
+        "--force-with-lease=refs/heads/codex/fix-issue:",
+        "--",
+        "https://github.com/org/private.git",
+        "refs/heads/codex/fix-issue:refs/heads/codex/fix-issue",
+      ]);
+      assert.strictEqual(
+        push.env?.GIT_CONFIG_VALUE_0,
+        `AUTHORIZATION: basic ${Buffer.from("x-access-token:test-token").toString("base64")}`,
+      );
+      assert.deepEqual(calls.at(-1)?.args, [
+        "update-ref",
+        "refs/remotes/origin/codex/fix-issue",
+        branchSha,
+      ]);
+    }).pipe(Effect.provide(makeLayer({ token: "test-token", git: branchGit(calls) })));
+  },
+);
+
+it.effect("reuses an already published branch on retry without pushing it again", () => {
+  const calls: GitVcsDriver.ExecuteGitInput[] = [];
+  return Effect.gen(function* () {
+    const service = yield* SourceControlRepositoryService.SourceControlRepositoryService;
+    yield* service.publishBranch(branchInput);
+    assert.isFalse(calls.some((call) => call.operation === "publishBranch.push"));
+    assert.isTrue(calls.some((call) => call.operation === "publishBranch.upstream"));
+  }).pipe(Effect.provide(makeLayer({ token: "test-token", git: branchGit(calls, branchSha) })));
+});
+
+it.effect("does not overwrite a remote branch containing different commits", () => {
+  const calls: GitVcsDriver.ExecuteGitInput[] = [];
+  return Effect.gen(function* () {
+    const service = yield* SourceControlRepositoryService.SourceControlRepositoryService;
+    const error = yield* service.publishBranch(branchInput).pipe(Effect.flip);
+    assert.include(error.detail, "different commits");
+    assert.isFalse(calls.some((call) => call.operation === "publishBranch.push"));
+  }).pipe(
+    Effect.provide(makeLayer({ token: "test-token", git: branchGit(calls, "2".repeat(40)) })),
+  );
+});
+
+it.effect("does not fall back to machine credentials for a GitHub branch", () => {
+  const calls: GitVcsDriver.ExecuteGitInput[] = [];
+  return Effect.gen(function* () {
+    const service = yield* SourceControlRepositoryService.SourceControlRepositoryService;
+    const error = yield* service.publishBranch(branchInput).pipe(Effect.flip);
+    assert.include(error.detail, "Connect GitHub");
+    assert.isFalse(calls.some((call) => call.operation === "publishBranch.remote"));
+  }).pipe(Effect.provide(makeLayer({ git: branchGit(calls) })));
+});
+
+it.effect("keeps local-only repositories usable without a remote or GitHub account", () => {
+  const calls: GitVcsDriver.ExecuteGitInput[] = [];
+  return Effect.gen(function* () {
+    const service = yield* SourceControlRepositoryService.SourceControlRepositoryService;
+    yield* service.publishBranch(branchInput);
+    assert.isFalse(calls.some((call) => call.operation === "publishBranch.remote"));
+  }).pipe(Effect.provide(makeLayer({ git: branchGit(calls, "", true) })));
+});
+
+it.effect(
+  "finds an existing checkout outside the app directory and resolves a selected subfolder to its root",
+  () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-existing-repo-" });
+      yield* fs.makeDirectory(`${root}/src`);
+      const calls: GitVcsDriver.ExecuteGitInput[] = [];
+      yield* Effect.gen(function* () {
+        const service = yield* SourceControlRepositoryService.SourceControlRepositoryService;
+        assert.deepEqual(
+          yield* service.existingRepository({ cwd: `${root}/src`, repository: "Org/Private" }),
+          { cwd: root },
+        );
+        assert.deepEqual(
+          calls.map((call) => call.args),
+          [["rev-parse", "--show-toplevel"]],
+        );
+      }).pipe(
+        Effect.provide(
+          makeLayer({
+            git: {
+              execute: (input) =>
+                Effect.sync(() => {
+                  calls.push(input);
+                  return { ...processOutput(), stdout: root + "\n" };
+                }),
+              resolvePrimaryRemoteName: () => Effect.succeed("origin"),
+              readConfigValue: () => Effect.succeed("https://user@github.com/org/private.git"),
+            },
+          }),
+        ),
+      );
+    }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("rejects missing folders, non-Git folders, and checkouts for another repository", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-existing-repo-" });
+    yield* Effect.gen(function* () {
+      const service = yield* SourceControlRepositoryService.SourceControlRepositoryService;
+      const missing = yield* service
+        .existingRepository({ cwd: `${root}/missing`, repository: "org/private" })
+        .pipe(Effect.flip);
+      assert.include(missing.detail, "does not exist");
+      const different = yield* service
+        .existingRepository({ cwd: root, repository: "org/private" })
+        .pipe(Effect.flip);
+      assert.include(different.detail, "does not match");
+    }).pipe(
+      Effect.provide(
+        makeLayer({
+          git: {
+            execute: () => Effect.succeed({ ...processOutput(), stdout: root }),
+            resolvePrimaryRemoteName: () => Effect.succeed("origin"),
+            readConfigValue: () => Effect.succeed("git@github.com:other/repo.git"),
+          },
+        }),
+      ),
+    );
+    yield* Effect.gen(function* () {
+      const service = yield* SourceControlRepositoryService.SourceControlRepositoryService;
+      const error = yield* service
+        .existingRepository({ cwd: root, repository: "org/private" })
+        .pipe(Effect.flip);
+      assert.include(error.detail, "not inside a Git checkout");
+    }).pipe(
+      Effect.provide(
+        makeLayer({
+          git: {
+            execute: () =>
+              Effect.fail(
+                new GitCommandError({
+                  operation: "test",
+                  command: "git",
+                  cwd: root,
+                  detail: "Not a repo",
+                }),
+              ),
+          },
+        }),
+      ),
+    );
+  }).pipe(Effect.provide(NodeServices.layer)),
+);

@@ -144,7 +144,7 @@ export function WorkPlanPanel({
           ) : (
             <>
               <WorkTaskContext environmentId={environmentId} item={data.item} />
-              <View className="flex-row self-start gap-1 rounded-lg border border-border bg-card p-1">
+              <View className="w-full flex-row gap-1 rounded-lg border border-border bg-card p-1">
                 {(["plan", ...(executionSupported ? (["execute"] as const) : [])] as const).map(
                   (tab) => (
                     <Pressable
@@ -159,7 +159,7 @@ export function WorkPlanPanel({
                         setActionTab(tab);
                         if (tab === "execute") setExecutionVisited(true);
                       }}
-                      className={`min-h-11 items-center justify-center rounded-md px-5 ${visibleTab === tab ? "bg-subtle-strong" : ""} ${tab === "execute" && editor ? "opacity-50" : ""}`}
+                      className={`min-h-11 flex-1 items-center justify-center rounded-md px-5 ${visibleTab === tab ? "bg-subtle-strong" : ""} ${tab === "execute" && editor ? "opacity-50" : ""}`}
                     >
                       <Text className="text-sm font-medium">
                         {tab === "plan" ? "Plan" : "Execute"}

@@ -130,13 +130,13 @@ export function WorkPlanPanel({
             >
               <Tabs.List
                 aria-label="Agent action"
-                className="flex w-fit gap-1 rounded-lg border bg-input/40 p-1"
+                className="flex w-full gap-1 rounded-lg border bg-input/40 p-1"
               >
                 <Tabs.Tab
                   value="plan"
                   className={buttonVariants({
                     variant: "ghost",
-                    className: "data-active:bg-background data-active:shadow-sm",
+                    className: "flex-1 data-active:bg-background data-active:shadow-sm",
                   })}
                 >
                   Plan
@@ -147,7 +147,7 @@ export function WorkPlanPanel({
                     disabled={!!editor}
                     className={buttonVariants({
                       variant: "ghost",
-                      className: "data-active:bg-background data-active:shadow-sm",
+                      className: "flex-1 data-active:bg-background data-active:shadow-sm",
                     })}
                   >
                     Execute
