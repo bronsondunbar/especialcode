@@ -102,8 +102,8 @@ export const make = Effect.gen(function* () {
     const plan = plans[0] ? yield* decodePlan(plans[0].record_json) : null;
     const unavailableReason = item.archivedAt
       ? "Restore the WorkItem first."
-      : item.status !== "review"
-        ? "Move completed work to Review first."
+      : !["running", "review"].includes(item.status)
+        ? "Start work on this task before creating a pull request."
         : !run || run.status !== "succeeded" || !run.worktreePath
           ? "Complete execution and validation before creating a pull request."
           : item.agentThreadId !== run.threadId || item.branch !== run.branch
@@ -281,6 +281,8 @@ export const make = Effect.gen(function* () {
               return yield* fail("conflict", "This PR already belongs to another WorkItem.");
             const next = {
               ...current,
+              status: current.status === "done" ? ("done" as const) : ("review" as const),
+              failureReason: null,
               resources: [
                 ...current.resources.filter(
                   (entry) =>

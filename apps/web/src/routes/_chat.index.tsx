@@ -34,7 +34,7 @@ function ChatIndexRouteView() {
   if (
     environments.some((environment) => environment.serverConfig?.environment.capabilities.workItems)
   ) {
-    return <Navigate to="/work" search={{ tab: "dashboard" }} replace />;
+    return <Navigate to="/work" search={{ tab: "queue" }} replace />;
   }
   if (
     environments.some(

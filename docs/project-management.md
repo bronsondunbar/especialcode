@@ -1,6 +1,6 @@
 # Project management
 
-This fork adds an environment-owned Work queue around T3 Code's existing coding-agent
+This fork adds an environment-owned Queue around T3 Code's existing coding-agent
 experience. A task can begin as a manual WorkItem, GitHub issue or Slack message, acquire
 a reviewed plan, execute in a dedicated worktree, and progress through PR review to completion.
 Web, desktop and mobile use the same server state. The upstream published apps and `t3`
@@ -81,21 +81,12 @@ remote-connection configuration remains unchanged.
 - [Notifications](notifications.md): durable inbox, preferences and device delivery.
 - [Automations](automation.md): triggers, run history, trusted execution and emergency stop.
 
-## Dashboard
+## Queue
 
-Open **Work → Dashboard** for an overview across projects in the selected environment. On
-web and desktop, **Open developer dashboard** in the command palette opens it directly.
-Filter by project, exact repository (`owner/repository`), source, agent, status or priority.
-
-Needs Attention highlights agent questions, failed work, pending plan approvals, and PR
-review or check issues. Ready contains tasks with a current approved plan and an assigned
-project. Running, Review, Blocked and Inbox show other work awaiting progress. A task can
-appear in more than one section. Select a section to page through all matching tasks.
-Recent Activity follows the same filters and includes completed work.
-
-Open a task's plan, agent thread or activity to take action. Use **Work Queue** to edit tasks.
-PR information reflects the latest sync; refresh it in the PR detail view when newer remote
-results are needed. Dashboard Refresh reloads saved state.
+Open **Work** to see your queue, or use **Open queue** in the command palette.
+Filter tasks by status, project, source or priority, then plan or execute with an agent.
+Tasks with an existing agent thread show **Thread linked**; select **Open thread** to
+continue in that conversation. Archive completed tasks and restore them from **Archived**.
 
 ## Architecture and modules
 

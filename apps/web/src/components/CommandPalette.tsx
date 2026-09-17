@@ -1829,19 +1829,9 @@ function OpenCommandPaletteDialog(props: {
 
   actionItems.push({
     kind: "action",
-    value: "action:dashboard",
-    searchTerms: ["dashboard", "attention", "agents", "command center"],
-    title: "Open developer dashboard",
-    icon: <SettingsIcon className={ITEM_ICON_CLASS} />,
-    run: async () => {
-      await navigate({ to: "/work", search: { tab: "dashboard" } });
-    },
-  });
-  actionItems.push({
-    kind: "action",
     value: "action:work",
     searchTerms: ["work", "tasks", "inbox", "backlog"],
-    title: "Open work queue",
+    title: "Open queue",
     icon: <SettingsIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
       await navigate({ to: "/work", search: { tab: "queue" } });

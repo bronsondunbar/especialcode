@@ -40,12 +40,14 @@ export const WORK_ITEM_MANUAL_STATUSES = [
   "cancelled",
 ] as const;
 export const WORK_ITEM_VIEWS = [
-  { id: "inbox", label: "Inbox", statuses: ["inbox"] },
-  { id: "backlog", label: "Backlog", statuses: ["backlog", "blocked", "cancelled"] },
-  { id: "ready", label: "Ready", statuses: ["ready", "awaiting_approval"] },
-  { id: "running", label: "Running", statuses: ["planning", "running"] },
+  { id: "inbox", label: "Inbox", statuses: ["inbox", "backlog", "ready"] },
+  {
+    id: "running",
+    label: "In Progress",
+    statuses: ["planning", "awaiting_approval", "running", "blocked"],
+  },
   { id: "review", label: "Review", statuses: ["review"] },
-  { id: "done", label: "Done", statuses: ["done"] },
+  { id: "done", label: "Done", statuses: ["done", "cancelled"] },
 ] as const satisfies ReadonlyArray<{
   id: string;
   label: string;

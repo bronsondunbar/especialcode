@@ -51,7 +51,7 @@ narrow this personal feed across all repositories the token can access, includin
 you have not added or cloned locally. Selecting a project narrows the feed to that repository.
 Other contributors’ unrelated PRs are excluded.
 
-After execution passes validation and reaches **Review**, open **Plan / Execution** and
+After execution passes validation, open **Plan / Execution** and
 choose **Create Pull Request**. Review and edit the suggested title and body. The draft
 includes the work summary, changed files, validation results, WorkItem ID and issue links.
 Issue links do not close issues automatically. Add closing syntax yourself only when you

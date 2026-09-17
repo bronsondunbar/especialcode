@@ -49,8 +49,8 @@ function GitHubIssuesPanelContent({ environmentId }: { environmentId: Environmen
             <h3 className="font-semibold">GitHub account</h3>
             <p className="text-sm text-muted-foreground">
               Open issues assigned to you across accessible repositories and organizations become
-              tasks in your Work queue’s Inbox. Sync runs every five minutes while this environment
-              is running. No agents start automatically.
+              tasks in your Queue’s Inbox. Sync runs every five minutes while this environment is
+              running. No agents start automatically.
             </p>
             {result.data?.account && (
               <>

@@ -35,6 +35,7 @@ export type WorkDashboardInput = typeof WorkDashboardInput.Type;
 export const WorkDashboardItem = Schema.Struct({
   id: WorkItemId,
   title: Schema.String,
+  bodyPreview: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(1000))),
   projectId: Schema.NullOr(ProjectId),
   project: Schema.NullOr(Schema.String),
   repository: Schema.NullOr(Schema.String),

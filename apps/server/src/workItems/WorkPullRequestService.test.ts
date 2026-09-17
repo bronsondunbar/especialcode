@@ -87,7 +87,7 @@ const setup = Effect.gen(function* () {
   };
   // The execution service sets the attached thread as part of its own transaction.
   const repo = yield* makeWorkItemRepository;
-  yield* repo.save({ ...item, agentThreadId: run.threadId });
+  yield* repo.save({ ...item, status: "running", agentThreadId: run.threadId });
   yield* sql`INSERT INTO work_item_executions(id,work_item_id,thread_id,status,record_json) VALUES ('run',${item.id},'thread','succeeded',${encodeRun(run)})`;
   const calls: GitRunStackedActionInput[] = [];
   const actions: string[] = [];

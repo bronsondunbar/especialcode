@@ -34,9 +34,10 @@ export const make = Effect.gen(function* () {
       AND (${input.status ?? null} IS NULL OR w.status=${input.status ?? null})
       AND (${input.priority ?? null} IS NULL OR w.priority=${input.priority ?? null})
       AND (${input.agent ?? null} IS NULL OR coalesce(CASE WHEN w.status IN ('planning','awaiting_approval','ready') THEN json_extract(p.record_json,'$.modelSelection.instanceId') END,json_extract(e.record_json,'$.modelSelection.instanceId'),w.assigned_agent,json_extract(p.record_json,'$.modelSelection.instanceId'))=${input.agent ?? null})`;
-      // Compact read model only: bodies, transcripts, plans and validation logs never cross this wire.
+      // Only a short description preview crosses the wire; full bodies and agent logs stay out.
       const base = sql`WITH source AS (
       SELECT w.id,w.title,w.project_id,w.source,w.status,w.priority,w.updated_at,w.revision,
+        substr(coalesce(json_extract(w.record_json,'$.body'),''),1,500) AS body_preview,
         projects.title AS project, json_extract(w.record_json,'$.repository') AS repository,
         coalesce(CASE WHEN w.status IN ('planning','awaiting_approval','ready') THEN json_extract(p.record_json,'$.modelSelection.instanceId') END,json_extract(e.record_json,'$.modelSelection.instanceId'),w.assigned_agent,json_extract(p.record_json,'$.modelSelection.instanceId')) AS agent,
         coalesce(CASE WHEN w.status IN ('planning','awaiting_approval','ready') THEN json_extract(p.record_json,'$.agentName') END,json_extract(e.record_json,'$.agentName'),json_extract(p.record_json,'$.agentName')) AS agent_name,
@@ -93,7 +94,7 @@ export const make = Effect.gen(function* () {
               reviewers: number;
               failed_checks: number;
               sync_error: string | null;
-            }>` ${base} SELECT json_object('id',id,'title',title,'projectId',project_id,'project',project,'repository',repository,'source',source,'status',status,'priority',priority,'agent',agent,'agentName',agent_name,'threadId',thread_id,'activity',activity,'reasons',json('[]'),'updatedAt',updated_at) AS record,
+            }>` ${base} SELECT json_object('id',id,'title',title,'bodyPreview',body_preview,'projectId',project_id,'project',project,'repository',repository,'source',source,'status',status,'priority',priority,'agent',agent,'agentName',agent_name,'threadId',thread_id,'activity',activity,'reasons',json('[]'),'updatedAt',updated_at) AS record,
       questions,execution_status,plan_status,publish_status,pr_state,review_decision,reviewers,failed_checks,sync_error
       FROM classified WHERE ${predicates[section.id]}
       ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,updated_at DESC,id

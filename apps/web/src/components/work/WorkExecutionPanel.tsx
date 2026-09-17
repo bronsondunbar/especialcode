@@ -1,3 +1,4 @@
+import { useOpenWorkThread } from "./useOpenWorkThread";
 import { WorkRepositoryField, useWorkTaskRepository } from "./WorkRepositoryField";
 import { Checkbox } from "../ui/checkbox";
 import { WorkDetails } from "./WorkDetails";
@@ -55,6 +56,12 @@ export function WorkExecutionPanel({
   const previous = useRef<{ key: string; commandId: string } | null>(null);
   const data = result.data;
   const run = data?.execution;
+  const [startedCommandId, setStartedCommandId] = useState<string | null>(null);
+  useOpenWorkThread(
+    environmentId,
+    run?.id === startedCommandId && run.threadReady ? run.threadId : null,
+    onClose,
+  );
   const active = run && !["succeeded", "failed", "stopped"].includes(run.status);
   const agent =
     data?.agents.find(
@@ -83,6 +90,8 @@ export function WorkExecutionPanel({
       if (response._tag === "Failure") setError(formatEnvironmentQueryError(response.cause));
       else {
         previous.current = null;
+        if (input.kind === "start") setStartedCommandId(commandId);
+        else setStartedCommandId(null);
         result.refresh();
       }
     } finally {

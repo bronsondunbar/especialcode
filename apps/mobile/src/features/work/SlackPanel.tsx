@@ -58,14 +58,10 @@ export function SlackPanel({
   environmentId,
   planningSupported = false,
   executionSupported = false,
-  pullRequestsSupported = false,
-  reviewsSupported = false,
 }: {
   environmentId: EnvironmentId;
   planningSupported?: boolean;
   executionSupported?: boolean;
-  pullRequestsSupported?: boolean;
-  reviewsSupported?: boolean;
 }) {
   const projects = useAtomValue(environmentProjects.projectsAtom).filter(
     (p) => p.environmentId === environmentId,
@@ -593,8 +589,6 @@ export function SlackPanel({
           id={planningId}
           onClose={() => setPlanningId(null)}
           executionSupported={executionSupported}
-          pullRequestsSupported={pullRequestsSupported}
-          reviewsSupported={reviewsSupported}
         />
       )}
     </ScrollView>

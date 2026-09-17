@@ -41,7 +41,12 @@ export function SettingsScopeNotice({
           )
       : target === "project"
         ? groups.map((group) => ({
-            label: group.displayName,
+            label: groups.some(
+              (other) =>
+                other.projectKey !== group.projectKey && other.displayName === group.displayName,
+            )
+              ? `${group.displayName} · ${group.memberProjects.map((member) => member.workspaceRoot).join(", ")}`
+              : group.displayName,
             search: { project: group.projectKey },
           }))
         : target === "environment"

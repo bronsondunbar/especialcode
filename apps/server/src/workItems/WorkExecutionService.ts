@@ -208,8 +208,8 @@ export const make = Effect.gen(function* () {
                 ? run.review
                   ? "Changes pushed; awaiting review"
                   : current.validationCommands.length
-                    ? "Validation passed; ready for review"
-                    : "Agent completed; ready for review"
+                    ? "Validation passed; ready to create a PR"
+                    : "Agent completed; ready to create a PR"
                 : (message ?? status),
             revision: current.revision + 1,
             updatedAt: at,
@@ -218,12 +218,14 @@ export const make = Effect.gen(function* () {
           const next = {
             ...item,
             status:
-              item.status === "done"
-                ? ("done" as const)
+              item.agentThreadId !== current.threadId || item.status === "done"
+                ? item.status
                 : status === "succeeded"
-                  ? ("review" as const)
+                  ? current.review || item.status === "review"
+                    ? ("review" as const)
+                    : ("running" as const)
                   : ("blocked" as const),
-            failureReason: message,
+            failureReason: item.agentThreadId === current.threadId ? message : item.failureReason,
             revision: item.revision + 1,
             updatedAt: at,
           };
@@ -973,7 +975,17 @@ export const make = Effect.gen(function* () {
     Effect.uninterruptible,
   );
   const get = Effect.fn("WorkExecutionService.get")(function* (id: WorkItemId) {
-    return { item: yield* work.get(id), execution: yield* read(id), agents: yield* agents() };
+    const item = yield* work.get(id);
+    const execution = yield* read(id);
+    const threadAvailable =
+      execution && item.projectId
+        ? yield* repo.referenceExists(item.projectId, execution.threadId)
+        : false;
+    return {
+      item,
+      execution: execution && !threadAvailable ? { ...execution, threadReady: false } : execution,
+      agents: yield* agents(),
+    };
   }, Effect.mapError(mapError));
   return {
     get,

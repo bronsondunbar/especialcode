@@ -366,8 +366,13 @@ function ProjectDetail({
         draftStore.clearProjectDraftThreadId(projectRef);
       }
 
-      if (isWholeGroup && !hasOtherMembers) {
-        void navigate({ to: "/", replace: true });
+      if (isWholeGroup) {
+        void navigate({
+          to: "/settings/projects",
+          search: { project: undefined, machine: undefined, checkout: undefined },
+          hash: "",
+          replace: true,
+        });
       }
     },
     [

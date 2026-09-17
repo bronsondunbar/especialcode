@@ -177,9 +177,7 @@ export function NotificationCenter({
             setWorkItemId(null);
             onCloseWorkItem?.();
           }}
-          reviewsSupported={capabilities?.workReviews === true}
           executionSupported={capabilities?.workExecutions === true}
-          pullRequestsSupported={capabilities?.workPullRequests === true}
         />
       )}
     </div>

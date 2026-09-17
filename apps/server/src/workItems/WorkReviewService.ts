@@ -4,6 +4,8 @@ import {
   WorkReviewSnapshot,
   WorkReviewMutation,
   WorkItemId,
+  PullRequestRef,
+  ThreadLinkedPullRequest,
   type WorkItem,
 } from "@t3tools/contracts";
 import * as NodeCrypto from "node:crypto";
@@ -12,6 +14,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import * as Schedule from "effect/Schedule";
 import * as Semaphore from "effect/Semaphore";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
@@ -21,6 +24,8 @@ import { OrchestrationEngineService } from "../orchestration/Services/Orchestrat
 import { WorkItemService } from "./WorkItemService.ts";
 import { WorkExecutionService } from "./WorkExecutionService.ts";
 const json = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+const decodeReference = Schema.decodeUnknownEffect(PullRequestRef);
+const decodeBranchPr = Schema.decodeUnknownEffect(Schema.fromJsonString(ThreadLinkedPullRequest));
 const decodePr = Schema.decodeUnknownEffect(Schema.fromJsonString(WorkPullRequestRecord));
 const decodeSnapshot = Schema.decodeUnknownEffect(Schema.fromJsonString(WorkReviewSnapshot));
 const encodeSnapshot = Schema.encodeSync(Schema.fromJsonString(WorkReviewSnapshot));
@@ -111,14 +116,67 @@ export const make = Effect.gen(function* () {
         record_json: string;
       }>`SELECT record_json FROM work_item_pull_requests WHERE work_item_id=${id}`;
       const record = rows[0] ? yield* decodePr(rows[0].record_json) : null;
-      if (!record?.reference) return null;
-      const reference = record.reference;
+      const task = yield* repo.get(id);
+      if (!task || task.archivedAt || task.status === "cancelled") return null;
+      let reference = record?.reference ?? null;
+      if (!reference && task.agentThreadId) {
+        const links = yield* sql<{
+          projectId: string;
+          host: string;
+          repository: string;
+          number: number;
+        }>`
+          SELECT t.project_id AS "projectId", p.host, p.repository, p.number
+          FROM projection_thread_pull_requests p JOIN projection_threads t ON t.thread_id=p.thread_id
+          WHERE p.thread_id=${task.agentThreadId} AND t.deleted_at IS NULL AND p.source='created'
+          ORDER BY p.linked_at DESC LIMIT 1`;
+        if (links[0]) reference = yield* decodeReference(links[0]);
+        else {
+          const threads = yield* sql<{ branch_pull_request_json: string | null }>`
+            SELECT branch_pull_request_json FROM projection_threads
+            WHERE thread_id=${task.agentThreadId} AND deleted_at IS NULL`;
+          if (threads[0]?.branch_pull_request_json) {
+            const branch = yield* decodeBranchPr(threads[0].branch_pull_request_json);
+            reference = yield* decodeReference({ ...branch, host: new URL(branch.url).hostname });
+          }
+        }
+      }
+      if (!reference) return null;
       return yield* Effect.gen(function* () {
         if (force) yield* prs.invalidate({ reference });
         const summary = yield* prs.summary(reference);
         const at = DateTime.formatIso(yield* DateTime.now);
         if (summary.state === "merged")
           yield* executions.completeMerged(id, summary.mergedAt ?? at, hash(reference));
+        else if (summary.state === "open") {
+          const changed = yield* sql.withTransaction(
+            Effect.gen(function* () {
+              const commandId = `pr-opened:${id}:${hash(reference)}`;
+              if (yield* repo.receipt(commandId)) return;
+              const current = yield* repo.get(id);
+              if (!current || current.archivedAt || ["done", "cancelled"].includes(current.status))
+                return;
+              const next: WorkItem = {
+                ...current,
+                status: "review",
+                failureReason: null,
+                completedAt: null,
+                revision: current.revision + 1,
+                updatedAt: at,
+              };
+              yield* repo.save(next);
+              yield* repo.record(
+                commandId,
+                json(reference),
+                "pr_linked",
+                next,
+                json({ message: "Pull request opened; task moved to Review" }),
+              );
+              return true;
+            }),
+          );
+          if (changed) yield* work.notifyChange;
+        }
         const { detail, activity } = yield* Effect.all(
           { detail: prs.detail(reference), activity: prs.activity(reference) },
           { concurrency: 2 },
@@ -250,9 +308,15 @@ export const make = Effect.gen(function* () {
   const refreshAll = Effect.fn("WorkReviewService.refreshAll")(function* () {
     const rows = yield* sql<{
       work_item_id: string;
-    }>`SELECT p.work_item_id FROM work_item_pull_requests p JOIN work_items w ON w.id=p.work_item_id WHERE w.archived_at IS NULL AND w.status NOT IN ('done','cancelled')`;
+    }>`SELECT w.id AS work_item_id FROM work_items w WHERE w.archived_at IS NULL AND w.status NOT IN ('done','cancelled')
+      AND (EXISTS (SELECT 1 FROM work_item_pull_requests p WHERE p.work_item_id=w.id)
+        OR EXISTS (SELECT 1 FROM projection_threads t WHERE t.thread_id=json_extract(w.record_json,'$.agentThreadId') AND t.deleted_at IS NULL
+          AND (t.branch_pull_request_json IS NOT NULL OR EXISTS (
+            SELECT 1 FROM projection_thread_pull_requests p WHERE p.thread_id=t.thread_id AND p.source='created'))))`;
     for (const row of rows)
-      yield* refresh(WorkItemId.make(row.work_item_id)).pipe(Effect.ignoreCause({ log: true }));
+      yield* refresh(WorkItemId.make(row.work_item_id), true).pipe(
+        Effect.ignoreCause({ log: true }),
+      );
   });
   const worker = yield* makeDrainableWorker((_input: void) =>
     refreshAll().pipe(Effect.ignoreCause({ log: true })),
@@ -279,6 +343,9 @@ export const make = Effect.gen(function* () {
     Effect.forkScoped,
   );
   yield* worker.enqueue(undefined);
+  yield* worker
+    .enqueue(undefined)
+    .pipe(Effect.repeat(Schedule.spaced("1 minute")), Effect.delay("1 minute"), Effect.forkScoped);
   return {
     get,
     mutate,

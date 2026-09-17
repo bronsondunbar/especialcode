@@ -351,6 +351,20 @@ it.effect(
         },
       });
       assert.equal(assigned.agentThreadId, "thread");
+      assert.equal(assigned.status, "running");
+      yield* sql`INSERT INTO work_item_executions(id,work_item_id,thread_id,status,record_json)
+        VALUES ('active-run',${item.id},'thread','running','{}')`;
+      const activeEdit = yield* service
+        .mutate({
+          kind: "update",
+          id: item.id,
+          commandId: "detach-active-thread",
+          expectedRevision: 2,
+          patch: { agentThreadId: null },
+        })
+        .pipe(Effect.flip);
+      assert.equal(activeEdit.code, "invalid");
+      yield* sql`UPDATE work_item_executions SET status='succeeded' WHERE id='active-run'`;
       assert.equal((yield* service.list({ agentThreadId: ThreadId.make("thread") })).total, 1);
       assert.equal((yield* service.list({ agentThreadId: ThreadId.make("other") })).total, 0);
       assert.equal(
@@ -365,6 +379,7 @@ it.effect(
         patch: { agentThreadId: null, assignedAgent: null },
       });
       assert.equal((yield* service.get(item.id)).agentThreadId, null);
+      assert.equal((yield* service.get(item.id)).status, "ready");
       assert.equal((yield* service.list({ agentThreadId: ThreadId.make("thread") })).total, 0);
       yield* sql`UPDATE projection_projects SET deleted_at='2026-02-01' WHERE project_id='owned'`;
       const changed = yield* service.mutate({

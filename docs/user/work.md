@@ -3,9 +3,11 @@
 Start with [Work items](../work-items.md) to create, organize, archive and reopen tasks.
 The [project-management overview](../project-management.md) covers setup and the complete workflow.
 
-## Dashboard
+## Queue
 
-See [Dashboard](../project-management.md#dashboard).
+Work opens your task queue. Tasks with a linked agent thread show **Thread linked**;
+select **Open thread** to continue the conversation.
+See [Queue](../project-management.md#queue).
 
 ## GitHub
 

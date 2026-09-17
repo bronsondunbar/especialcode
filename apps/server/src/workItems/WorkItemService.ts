@@ -156,7 +156,10 @@ export const make = Effect.gen(function* () {
               );
             if (current.archivedAt && input.kind !== "archive")
               return yield* invalid("Restore this work item before editing it.");
-            if (["planning", "awaiting_approval", "running"].includes(current.status)) {
+            if (
+              ["planning", "awaiting_approval"].includes(current.status) ||
+              (current.status === "running" && (yield* repository.hasActiveExecution(current.id)))
+            ) {
               return yield* invalid("Use the agent workflow to change an active work item.");
             }
             item = { ...current, revision: current.revision + 1, updatedAt: now };
@@ -214,6 +217,16 @@ export const make = Effect.gen(function* () {
               externalId: item.resources[0]?.externalId ?? null,
               externalUrl: item.resources[0]?.url ?? null,
             };
+          }
+          if (item.agentThreadId && item.agentThreadId !== current?.agentThreadId) {
+            item = { ...item, status: "running", completedAt: null, failureReason: null };
+          } else if (
+            current?.status === "running" &&
+            current.agentThreadId &&
+            !item.agentThreadId &&
+            input.kind === "update"
+          ) {
+            item = { ...item, status: "ready", completedAt: null, failureReason: null };
           }
           if (item.status === "blocked" && !item.failureReason)
             return yield* invalid("A blocked work item needs a reason.");
@@ -368,7 +381,48 @@ export const make = Effect.gen(function* () {
     const owner = yield* repository.resourceOwner(resource);
     return owner ? yield* repository.get(owner) : null;
   }, Effect.mapError(mapError));
+  const clearDeletedThreadLinks = Effect.fn("WorkItemService.clearDeletedThreadLinks")(
+    function* (threadId: string | undefined) {
+      const changed = yield* repository.transaction(
+        Effect.gen(function* () {
+          const items = yield* repository.withUnavailableThread(threadId);
+          for (const current of items) {
+            const interrupted =
+              !current.archivedAt &&
+              ["planning", "awaiting_approval", "running"].includes(current.status);
+            const item: WorkItem = {
+              ...current,
+              agentThreadId: null,
+              status: interrupted ? "blocked" : current.status,
+              failureReason: interrupted
+                ? "The linked thread was deleted. Start a new thread to continue."
+                : current.failureReason,
+              revision: current.revision + 1,
+              updatedAt: DateTime.formatIso(yield* DateTime.now),
+            };
+            yield* repository.save(item);
+            yield* repository.record(
+              `thread-unlinked:${item.id}:${item.revision}`,
+              canonicalJson({ threadId: current.agentThreadId }),
+              "work_item.update",
+              item,
+              encodeMetadata({
+                fields: ["agentThreadId"],
+                previousStatus: current.status,
+                status: item.status,
+              }),
+            );
+          }
+          return items.length > 0;
+        }),
+      );
+      if (changed) yield* SubscriptionRef.update(changes, (n) => n + 1);
+    },
+    Effect.mapError(mapError),
+    Effect.uninterruptible,
+  );
   return {
+    clearDeletedThreadLinks,
     findByResource,
     deleteArchived,
     isResourceDeleted: (resource: WorkItemExternalResource) =>

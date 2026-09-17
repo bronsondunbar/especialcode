@@ -103,7 +103,9 @@ const setup = Effect.gen(function* () {
       Layer.mergeAll(
         Layer.succeed(Work.WorkItemService, work),
         Layer.succeed(Events.ApplicationEventService, appEvents),
-        Layer.mock(WorkPlanService)({ get: () => Effect.succeed({ item, plan, agents: [] }) }),
+        Layer.mock(WorkPlanService)({
+          get: () => Effect.succeed({ item, plan, agents: [], threadAvailable: true }),
+        }),
         Layer.mock(WorkExecutionService)({
           get: Effect.fn(function* () {
             return { item, execution: yield* Ref.get(execution), agents: [] };

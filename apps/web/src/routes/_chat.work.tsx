@@ -1,16 +1,19 @@
+import { WorkDescriptionPreview } from "../components/work/WorkDescriptionPreview";
+import { WorkAgentActions } from "../components/work/WorkAgentActions";
 import { VercelSettingsPanel } from "../components/vercel/VercelSettingsPanel";
 import { ClearWorkQueueButton } from "../components/work/ClearWorkQueueButton";
-import { WorkTaskThreadButton } from "../components/work/WorkTaskThreadButton";
-import { WorkDashboard } from "../components/work/WorkDashboardPanel";
 import { WorkAutomationPanel } from "../components/work/WorkAutomationPanel";
-import { WorkActivityPanel } from "../components/work/WorkActivityPanel";
-import { Dialog, DialogPopup, DialogTitle } from "../components/ui/dialog";
 import { SlackPanel } from "../components/work/SlackPanel";
-import { WorkPlanPanel } from "../components/work/WorkPlanPanel";
 import { GitHubIssuesPanel } from "../components/work/GitHubIssuesPanel";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useDeferredValue, useRef, useState } from "react";
-import { ArchiveIcon, ClipboardListIcon, PlusIcon, RefreshCwIcon } from "lucide-react";
+import {
+  ArchiveIcon,
+  ClipboardListIcon,
+  LayoutDashboardIcon,
+  PlusIcon,
+  RefreshCwIcon,
+} from "lucide-react";
 import {
   EnvironmentId,
   ProjectId,
@@ -40,17 +43,20 @@ import { formatEnvironmentQueryError, useEnvironmentQuery } from "../state/query
 import { useAtomCommand } from "../state/use-atom-command";
 import { workItems } from "../state/workItems";
 
-const workTabs = ["queue", "github", "slack", "vercel", "automations", "dashboard"] as const;
+const workTabs = ["queue", "github", "slack", "vercel", "automations"] as const;
 type WorkTab = (typeof workTabs)[number];
 export const Route = createFileRoute("/_chat/work")({
   component: WorkPage,
   validateSearch: (search: Record<string, unknown>): { tab?: WorkTab } => {
-    const tab = workTabs.find((tab) => tab === search.tab);
+    const tab = search.tab === "dashboard" ? "queue" : workTabs.find((tab) => tab === search.tab);
     return tab ? { tab } : {};
   },
 });
 const selectClass = "h-9 rounded-lg border border-input bg-background px-2 text-sm";
-const label = (value: string) => value.replaceAll("_", " ").replace(/^./, (c) => c.toUpperCase());
+const label = (value: string) =>
+  value === "running"
+    ? "In Progress"
+    : value.replaceAll("_", " ").replace(/^./, (c) => c.toUpperCase());
 type Command = WorkItemMutation extends infer T
   ? T extends WorkItemMutation
     ? Omit<T, "commandId">
@@ -62,26 +68,22 @@ function WorkPage() {
   const supported = environments.filter(
     (environment) => environment.serverConfig?.environment.capabilities.workItems === true,
   );
-  const requestedTab = Route.useSearch().tab ?? "dashboard";
+  const requestedTab = Route.useSearch().tab ?? "queue";
   const navigate = Route.useNavigate();
   const setTab = (tab: WorkTab) => {
     void navigate({ search: { tab } });
   };
   const [selected, setSelected] = useState<EnvironmentId | null>(null);
   const environment = supported.find((item) => item.environmentId === selected) ?? supported[0];
-  const tab =
-    requestedTab === "dashboard" &&
-    !environment?.serverConfig?.environment.capabilities.workDashboard
-      ? "queue"
-      : requestedTab;
+  const tab = requestedTab;
   return (
     <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
       <WorkspacePageHeader electron={isElectron}>
-        <ClipboardListIcon className="size-4" />
-        <h1 className="font-medium">Work</h1>
+        <LayoutDashboardIcon className="size-4" />
+        <h1 className="font-medium">Dashboard</h1>
         {supported.length > 1 && (
           <select
-            aria-label="Work environment"
+            aria-label="Dashboard environment"
             className={`${selectClass} no-drag ml-auto`}
             value={environment?.environmentId ?? ""}
             onChange={(event) => setSelected(EnvironmentId.make(event.target.value))}
@@ -96,16 +98,8 @@ function WorkPage() {
       </WorkspacePageHeader>
       {environment && (
         <div className="flex flex-wrap gap-2 border-b px-4 py-2">
-          {environment.serverConfig?.environment.capabilities.workDashboard && (
-            <Button
-              variant={tab === "dashboard" ? "secondary" : "ghost"}
-              onClick={() => setTab("dashboard")}
-            >
-              Dashboard
-            </Button>
-          )}
           <Button variant={tab === "queue" ? "secondary" : "ghost"} onClick={() => setTab("queue")}>
-            Work Queue
+            Queue
           </Button>
           {environment.serverConfig?.environment.capabilities.slack && (
             <Button
@@ -134,16 +128,8 @@ function WorkPage() {
         </div>
       )}
       {environment &&
-      tab === "dashboard" &&
-      environment.serverConfig?.environment.capabilities.workDashboard ? (
-        <WorkDashboard
-          key={environment.environmentId}
-          environmentId={environment.environmentId}
-          providers={environment.serverConfig?.providers ?? []}
-        />
-      ) : environment &&
-        tab === "automations" &&
-        environment.serverConfig?.environment.capabilities.workAutomations ? (
+      tab === "automations" &&
+      environment.serverConfig?.environment.capabilities.workAutomations ? (
         <WorkAutomationPanel
           autonomousSupported={
             environment.serverConfig?.environment.capabilities.autonomousWork === true
@@ -162,10 +148,6 @@ function WorkPage() {
           executionSupported={
             environment.serverConfig?.environment.capabilities.workExecutions === true
           }
-          pullRequestsSupported={
-            environment.serverConfig?.environment.capabilities.workPullRequests === true
-          }
-          reviewsSupported={environment.serverConfig?.environment.capabilities.workReviews === true}
         />
       ) : environment &&
         tab === "github" &&
@@ -189,14 +171,8 @@ function WorkPage() {
           deletionSupported={
             environment.serverConfig?.environment.capabilities.workItemsDelete === true
           }
-          reviewsSupported={environment.serverConfig?.environment.capabilities.workReviews === true}
-          pullRequestsSupported={
-            environment.serverConfig?.environment.capabilities.workPullRequests === true
-          }
           planningSupported={environment.serverConfig?.environment.capabilities.workPlans === true}
-          activitySupported={
-            environment.serverConfig?.environment.capabilities.workActivity === true
-          }
+
           executionSupported={
             environment.serverConfig?.environment.capabilities.workExecutions === true
           }
@@ -216,24 +192,16 @@ function WorkQueue({
   environmentId,
   providers,
   planningSupported,
-  activitySupported,
   executionSupported,
-  pullRequestsSupported,
-  reviewsSupported,
 }: {
   environmentId: EnvironmentId;
   providers: ReadonlyArray<ServerProvider>;
   deletionSupported: boolean;
   planningSupported: boolean;
-  activitySupported: boolean;
   executionSupported: boolean;
-  pullRequestsSupported: boolean;
-  reviewsSupported: boolean;
 }) {
   const projects = useProjects().filter((project) => project.environmentId === environmentId);
   const threads = useThreadShells().filter((thread) => thread.environmentId === environmentId);
-  const [activityId, setActivityId] = useState<WorkItemId | null>(null);
-  const [planningId, setPlanningId] = useState<WorkItemId | null>(null);
   const [view, setView] = useState<string>("inbox");
   const [search, setSearch] = useState("");
   const query = useDeferredValue(search);
@@ -307,34 +275,10 @@ function WorkQueue({
   };
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-      {activityId && (
-        <Dialog
-          open
-          onOpenChange={(open) => {
-            if (!open) setActivityId(null);
-          }}
-        >
-          <DialogPopup className="max-w-3xl overflow-y-auto p-6">
-            <DialogTitle>Task activity</DialogTitle>
-            <WorkActivityPanel environmentId={environmentId} id={activityId} />
-          </DialogPopup>
-        </Dialog>
-      )}
-      {planningId && (
-        <WorkPlanPanel
-          reviewsSupported={reviewsSupported}
-          pullRequestsSupported={pullRequestsSupported}
-          executionSupported={executionSupported}
-          key={planningId}
-          environmentId={environmentId}
-          id={planningId}
-          onClose={() => setPlanningId(null)}
-        />
-      )}
-      <div className="mx-auto flex max-w-5xl flex-col gap-5">
+      <div className="flex w-full flex-col gap-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-xl font-semibold">Your work queue</h2>
+            <h2 className="text-xl font-semibold">Queue</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               Organize tasks and keep their context together.
             </p>
@@ -492,7 +436,7 @@ function WorkQueue({
             <h3 className="font-medium">No work items here</h3>
             <p className="mt-1 text-sm text-muted-foreground">
               {view === "running" && !archived
-                ? "No active planning work. Open a Ready task to plan with an agent."
+                ? "No tasks in progress. Open an Inbox task to plan or execute with an agent."
                 : "Create a task or adjust your filters."}
             </p>
           </div>
@@ -500,30 +444,20 @@ function WorkQueue({
         <ul className="flex flex-col gap-3" aria-label="Work items">
           {result.data?.items.map((item) => (
             <li key={item.id} className="rounded-xl border bg-card p-4">
-              {activitySupported && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="mb-3 mr-2"
-                  onClick={() => setActivityId(item.id)}
-                >
-                  Activity
-                </Button>
-              )}
-              <WorkTaskThreadButton environmentId={environmentId} id={item.id} />
-              {planningSupported && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="mb-3"
-                  onClick={() => setPlanningId(item.id)}
-                >
-                  Plan / Execution
-                </Button>
-              )}
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <h3 className="break-words font-medium">{item.title}</h3>
+                  {item.agentThreadId && (
+                    <Link
+                      className="mt-2 inline-flex items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-xs font-medium text-primary hover:bg-primary/20 focus-visible:outline-2 focus-visible:outline-ring"
+                      to="/$environmentId/$threadId"
+                      params={{ environmentId, threadId: item.agentThreadId }}
+                      aria-label={`Open linked thread for ${item.title}`}
+                    >
+                      <span aria-hidden className="size-1.5 rounded-full bg-primary" />
+                      Thread linked · Open thread
+                    </Link>
+                  )}
                   <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
                     {[
                       ["source", label(item.source)],
@@ -561,15 +495,24 @@ function WorkQueue({
                 </Button>
               </div>
               {item.bodyPreview && (
-                <p className="mt-3 line-clamp-3 whitespace-pre-wrap break-words text-sm text-muted-foreground">
-                  {item.bodyPreview}
-                </p>
+                <div className="mt-3">
+                  <WorkDescriptionPreview text={item.bodyPreview} />
+                </div>
               )}
               {item.failureReason && (
                 <p className="mt-3 text-sm text-destructive">Blocked: {item.failureReason}</p>
               )}
               {item.branch && (
                 <p className="mt-2 text-xs text-muted-foreground">Branch: {item.branch}</p>
+              )}
+              {planningSupported && (
+                <div className="mt-3">
+                  <WorkAgentActions
+                    executionSupported={executionSupported}
+                    environmentId={environmentId}
+                    id={item.id}
+                  />
+                </div>
               )}
               <div className="mt-3 flex flex-wrap items-center gap-3">
                 {!item.archivedAt && (
@@ -602,15 +545,6 @@ function WorkQueue({
                 >
                   {item.archivedAt ? "Restore" : "Archive"}
                 </Button>
-                {item.agentThreadId && (
-                  <Link
-                    className="text-sm underline"
-                    to="/$environmentId/$threadId"
-                    params={{ environmentId, threadId: item.agentThreadId }}
-                  >
-                    Open thread
-                  </Link>
-                )}
                 {item.resources.map((resource) => (
                   <a
                     key={`${resource.source}:${resource.namespace}:${resource.externalId}`}

@@ -98,8 +98,18 @@ export const make = Effect.gen(function* () {
             },
             {
               ...item,
-              status: failed ? "ready" : "awaiting_approval",
-              failureReason: failed ? result : null,
+              status:
+                item.agentThreadId === plan.threadId
+                  ? failed
+                    ? "ready"
+                    : "awaiting_approval"
+                  : item.status,
+              failureReason:
+                item.agentThreadId === plan.threadId
+                  ? failed
+                    ? result
+                    : null
+                  : item.failureReason,
               revision: item.revision + 1,
               updatedAt: now,
             },
@@ -351,7 +361,17 @@ export const make = Effect.gen(function* () {
     Effect.uninterruptible,
   );
   const get = Effect.fn("WorkPlanService.get")(function* (id: WorkItemId) {
-    return { item: yield* work.get(id), plan: yield* read(id), agents: yield* generator.agents() };
+    const item = yield* work.get(id);
+    const plan = yield* read(id);
+    return {
+      item,
+      plan,
+      agents: yield* generator.agents(),
+      threadAvailable:
+        plan && item.projectId
+          ? yield* repository.referenceExists(item.projectId, plan.threadId)
+          : false,
+    };
   }, Effect.mapError(mapError));
   return {
     get,

@@ -120,7 +120,11 @@ it.effect("classifies current work and clears resolved agent and PR attention", 
         .items.find((i) => i.id === "active")!
         .reasons.includes("Agent needs input"),
     );
-    assert.isFalse(json(page).includes("Private"));
+    assert.isFalse(json(page).includes("Private logs"));
+    assert.strictEqual(
+      page.sections.find((s) => s.id === "inbox")?.items[0]?.bodyPreview,
+      "Private long body",
+    );
     yield* c.sql`UPDATE projection_threads SET pending_user_input_count=0,pending_approval_count=0 WHERE thread_id='thread'`;
     yield* c.review("review", "open", false);
     page = yield* c.service.list({ section: "attention" });
@@ -248,4 +252,25 @@ it.effect("streams work changes without polling", () =>
     assert.strictEqual(pages[0]?.sections[0]?.total, 0);
     assert.strictEqual(pages[1]?.sections[0]?.total, 1);
   }).pipe(Effect.provide(SqlitePersistenceMemory)),
+);
+
+it.effect(
+  "returns bounded description previews including empty and Unicode issue descriptions",
+  () =>
+    Effect.gen(function* () {
+      const c = yield* setup;
+      for (const [id, body, preview] of [
+        ["long", "A".repeat(600) + "hidden tail", "A".repeat(500)],
+        ["empty", "", ""],
+        ["unicode", "🚀".repeat(600), "🚀".repeat(500)],
+      ] as const) {
+        yield* c.create(id, "inbox", "github_issue");
+        yield* c.sql`UPDATE work_items SET record_json=json_set(record_json,'$.body',${body}) WHERE id=${id}`;
+        const item = (yield* c.service.list({ section: "inbox" })).sections[0]?.items.find(
+          (item) => item.id === id,
+        );
+        assert.strictEqual(item?.bodyPreview, preview);
+        assert.isFalse(json(item).includes("hidden tail"));
+      }
+    }).pipe(Effect.provide(SqlitePersistenceMemory)),
 );

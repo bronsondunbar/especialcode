@@ -172,6 +172,7 @@ import * as UsageService from "./usage/UsageService.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import * as WorkItems from "./workItems/WorkItemService.ts";
+import * as WorkItemThreadReactor from "./workItems/WorkItemThreadReactor.ts";
 import { listLinkedPullRequestThreads } from "./pullRequest/linkedThreads.ts";
 import { pullRequestSyncKey } from "./pullRequest/pullRequestSyncKey.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -3584,6 +3585,9 @@ export const websocketRpcRouteLayer = Layer.unwrap(
       Effect.provideService(VercelAdapter.VercelAdapter, vercelAdapter),
     );
     const workItems = yield* WorkItems.make;
+    yield* WorkItemThreadReactor.start().pipe(
+      Effect.provideService(WorkItems.WorkItemService, workItems),
+    );
     const workActivity = yield* WorkActivity.make.pipe(
       Effect.provideService(WorkItems.WorkItemService, workItems),
     );

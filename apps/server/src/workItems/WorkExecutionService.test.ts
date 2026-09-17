@@ -409,9 +409,9 @@ for (const guidance of [undefined, "  Keep the existing API compatible.  "]) {
         yield* ctx.complete();
         yield* ctx.service.reconcile(run);
         const final = yield* settled(ctx.service, ctx.item.id);
-        assert.equal(final.item.status, "review");
+        assert.equal(final.item.status, "running");
         assert.equal(final.execution?.status, "succeeded");
-        assert.equal(final.execution?.activity, "Agent completed; ready for review");
+        assert.equal(final.execution?.activity, "Agent completed; ready to create a PR");
         assert.equal(ctx.calls.validate, 0);
       }).pipe(Effect.provide(SqlitePersistenceMemory), Effect.scoped),
   );
@@ -435,7 +435,7 @@ it.effect(
 );
 
 it.effect(
-  "atomically approves, deduplicates execution, waits for a checkpoint and passing validation before review",
+  "atomically approves, deduplicates execution, waits for a checkpoint and passing validation while remaining Running until a PR is opened",
   () =>
     Effect.gen(function* () {
       const ctx = yield* setup;
@@ -455,7 +455,7 @@ it.effect(
       assert.strictEqual((yield* ctx.work.get(ctx.item.id)).status, "running");
       yield* Deferred.succeed(ctx.validationGate, undefined);
       const final = yield* settled(ctx.service, ctx.item.id);
-      assert.strictEqual(final.item.status, "review");
+      assert.strictEqual(final.item.status, "running");
       assert.deepEqual(final.execution?.changedFiles, ["src/app.ts"]);
       assert.strictEqual(final.execution?.validationResults[0]?.exitCode, 0);
       assert.strictEqual(ctx.calls.validate, 1);
@@ -671,6 +671,14 @@ const makeReviewSetup = (direct = false) =>
     yield* ctx.service.reconcile((yield* ctx.service.get(ctx.item.id)).execution!);
     yield* Deferred.succeed(ctx.validationGate, undefined);
     yield* settled(ctx.service, ctx.item.id);
+    const completed = yield* ctx.service.get(ctx.item.id);
+    yield* ctx.work.mutate({
+      kind: "status",
+      id: ctx.item.id,
+      commandId: "pr-opened",
+      expectedRevision: completed.item.revision,
+      status: "review",
+    });
     const state = yield* ctx.service.get(ctx.item.id);
     const reference = {
       projectId: ProjectId.make("project"),
@@ -1037,4 +1045,25 @@ it.effect(
       );
       assert.strictEqual(ctx.calls.prepare, 0);
     }).pipe(Effect.provide(SqlitePersistenceMemory)),
+);
+
+it.effect("removes deleted execution thread actions and preserves the unlink reason", () =>
+  Effect.gen(function* () {
+    const ctx = yield* setup;
+    yield* ctx.launch;
+    const run = (yield* ctx.service.get(ctx.item.id)).execution!;
+    yield* ctx.sql`INSERT INTO projection_threads(thread_id,project_id,title,model_selection_json,created_at,updated_at)
+      VALUES (${run.threadId},'project','Execution','{"instanceId":"codex","model":"test"}',${at},${at})`;
+    assert.isTrue((yield* ctx.service.get(ctx.item.id)).execution?.threadReady);
+    yield* ctx.sql`UPDATE projection_threads SET deleted_at=${at} WHERE thread_id=${run.threadId}`;
+    yield* ctx.work.clearDeletedThreadLinks(run.threadId);
+    yield* Ref.update(ctx.thread, (thread) => ({ ...thread, deletedAt: at }));
+    yield* ctx.service.reconcile(run);
+    const state = yield* ctx.service.get(ctx.item.id);
+    assert.isNull(state.item.agentThreadId);
+    assert.equal(state.item.status, "blocked");
+    assert.include(state.item.failureReason ?? "", "Start a new thread");
+    assert.isFalse(state.execution?.threadReady);
+    assert.equal(state.execution?.status, "failed");
+  }).pipe(Effect.provide(SqlitePersistenceMemory), Effect.scoped),
 );

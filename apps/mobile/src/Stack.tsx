@@ -245,7 +245,7 @@ const SettingsContentStack = createNativeStackNavigator({
     SettingsWork: createNativeStackScreen({
       screen: WorkRouteScreen,
       linking: "work",
-      options: { title: "Work" },
+      options: { title: "Dashboard" },
     }),
   },
 });

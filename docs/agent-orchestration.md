@@ -9,7 +9,7 @@ Open a task and select the **Plan** tab. Review its preselected repository, choo
 provider and model, optionally add constraints, and start planning. A matching GitHub repository
 is preselected when available. No separate project assignment or move to Ready is needed. You can close
 the view or disconnect while it runs. The result moves the item to **Awaiting Approval**, shown
-under Ready, and is recorded in a dedicated thread attached to the WorkItem.
+under In Progress, and is recorded in a dedicated thread attached to the WorkItem.
 
 Planning inspects the current project workspace, including uncommitted files. It does not
 check out the WorkItem's requested branch. The agent first selects files from the repository
@@ -53,7 +53,7 @@ project setup runs before the agent starts; a failed setup blocks the WorkItem. 
 supports available T3 providers through their normal runtime and keeps provider approvals
 in the agent thread. Planning's provider restrictions do not restrict execution selection.
 
-The WorkItem remains **Running** through implementation and validation. Its execution panel
+The WorkItem remains **In Progress** through implementation and validation. Its execution panel
 shows activity, branch, timestamps, checkpoint changes and validation output. **Open Agent
 Thread**, **Open Worktree**, **View Changes** and **Terminal output** open the existing T3
 surfaces on the selected environment. Open Worktree browses the worktree's files inside T3,
@@ -63,7 +63,7 @@ An agent must explicitly report completion of the requested scope. Once its turn
 snapshot are complete, the server runs any configured validation commands in the worktree.
 Each command has a ten-minute limit; output is bounded and saved. These commands are optional
 for direct execution; the agent is still asked to run appropriate checks and report results.
-A completed implementation with all configured checks passing moves to **Review**. A question, failed turn, failed change snapshot or
+A completed implementation with all configured checks passing stays in **In Progress** until a PR is opened, then moves to **Review**. A question, failed turn, failed change snapshot or
 failed validation moves to **Blocked** with a reason. No pull request is created automatically.
 
 **Stop execution** cancels preparation or validation, or requests a stop through the provider.
@@ -98,7 +98,7 @@ cycle on the same WorkItem, original agent thread and worktree. The original pro
 model must still be available, and the thread must be restored and idle. New feedback or
 WorkItem edits invalidate an open confirmation form so you can review them before starting.
 
-The item returns to Running. Once the agent completes the requested fixes, the server runs
+The item returns to In Progress. Once the agent completes the requested fixes, the server runs
 validation and uses the existing Git workflow to commit and push to the same PR. Only passing
 validation proceeds to push; successful pushes return the item to Review. No second WorkItem
 or PR is created. Activity records each cycle and its outcome.

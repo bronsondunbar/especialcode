@@ -27,14 +27,10 @@ export function SlackPanel({
   environmentId,
   planningSupported = false,
   executionSupported = false,
-  pullRequestsSupported = false,
-  reviewsSupported = false,
 }: {
   environmentId: EnvironmentId;
   planningSupported?: boolean;
   executionSupported?: boolean;
-  pullRequestsSupported?: boolean;
-  reviewsSupported?: boolean;
 }) {
   const projects = useProjects().filter((p) => p.environmentId === environmentId);
   const { environments } = useEnvironments();
@@ -643,8 +639,6 @@ export function SlackPanel({
             id={planningId}
             onClose={() => setPlanningId(null)}
             executionSupported={executionSupported}
-            pullRequestsSupported={pullRequestsSupported}
-            reviewsSupported={reviewsSupported}
           />
         )}
       </div>

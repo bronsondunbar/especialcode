@@ -576,7 +576,7 @@ function GeneralSettingsSection() {
       <SettingsRow icon="folder" label="Project Grouping" target="SettingsProjectGrouping" />
       <AutoSettleSettingsRows />
       <SettingsRow icon="chart.bar.xaxis" label="Usage" target="SettingsUsage" />
-      <SettingsRow icon="folder" label="Work" target="SettingsWork" />
+      <SettingsRow icon="square.grid.2x2" label="Dashboard" target="SettingsWork" />
       <SettingsRow icon="bell" label="Notifications" target="SettingsNotifications" />
       <SettingsRow icon="bolt" label="Automations" target="SettingsAutomations" />
     </SettingsSection>

@@ -66,7 +66,7 @@ export function ClearWorkQueueButton({
     <View className="gap-2">
       <ControlPill
         disabled={pending}
-        label={pending ? "Please wait…" : archived ? "Clear archived tasks" : "Clear work queue"}
+        label={pending ? "Please wait…" : archived ? "Clear archived tasks" : "Clear queue"}
         onPress={() => void prepareClear()}
       />
       {message && (
@@ -84,7 +84,7 @@ export function ClearWorkQueueButton({
         >
           <SafeAreaView className="flex-1 justify-center gap-4 bg-background p-6">
             <Text className="text-xl font-semibold">
-              {archived ? "Clear archived tasks?" : "Clear work queue?"}
+              {archived ? "Clear archived tasks?" : "Clear queue?"}
             </Text>
             <Text>{clearWorkQueueDescription(preview, archived)}</Text>
             <ControlPill

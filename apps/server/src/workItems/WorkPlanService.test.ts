@@ -318,3 +318,23 @@ it.effect(
       );
     }).pipe(Effect.provide(SqlitePersistenceMemory), Effect.scoped),
 );
+
+it.effect("keeps plan results without a stale thread action after deletion during generation", () =>
+  Effect.gen(function* () {
+    const ctx = yield* setup;
+    yield* ctx.service.mutate(ctx.start);
+    yield* Deferred.await(ctx.entered);
+    const threadId = (yield* ctx.service.get(ctx.item.id)).plan!.threadId;
+    yield* ctx.sql`INSERT INTO projection_threads(thread_id,project_id,title,model_selection_json,created_at,updated_at)
+      VALUES (${threadId},'project','Plan','{"instanceId":"codex","model":"test"}','2026','2026')`;
+    assert.isTrue((yield* ctx.service.get(ctx.item.id)).threadAvailable);
+    yield* ctx.sql`UPDATE projection_threads SET deleted_at='2026' WHERE thread_id=${threadId}`;
+    yield* ctx.work.clearDeletedThreadLinks(threadId);
+    yield* Deferred.succeed(ctx.release, undefined);
+    const state = yield* settled(ctx.service, ctx.item.id);
+    assert.isNull(state.item.agentThreadId);
+    assert.equal(state.item.status, "blocked");
+    assert.isFalse(state.threadAvailable);
+    assert.deepEqual(state.plan?.content, content);
+  }).pipe(Effect.provide(SqlitePersistenceMemory), Effect.scoped),
+);

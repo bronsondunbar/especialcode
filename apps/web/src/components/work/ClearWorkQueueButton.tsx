@@ -58,7 +58,7 @@ export function ClearWorkQueueButton({
   return (
     <div className="grid justify-items-start gap-2">
       <Button variant="outline" disabled={pending} onClick={() => void prepareClear()}>
-        {pending ? "Please wait…" : archived ? "Clear archived tasks" : "Clear work queue"}
+        {pending ? "Please wait…" : archived ? "Clear archived tasks" : "Clear queue"}
       </Button>
       {message && (
         <p role="status" className="max-w-md text-sm text-muted-foreground">
@@ -73,7 +73,7 @@ export function ClearWorkQueueButton({
           }}
         >
           <DialogPopup className="p-6">
-            <DialogTitle>{archived ? "Clear archived tasks?" : "Clear work queue?"}</DialogTitle>
+            <DialogTitle>{archived ? "Clear archived tasks?" : "Clear queue?"}</DialogTitle>
             <p className="my-4 text-sm text-muted-foreground">
               {clearWorkQueueDescription(preview, archived)}
             </p>

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Modal, ScrollView, View } from "react-native";
+import { Modal, Pressable, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { EnvironmentId } from "@t3tools/contracts";
 import {
@@ -26,6 +26,7 @@ export function RepositoryFolderPicker({
   onSelect: (path: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [hideHidden, setHideHidden] = useState(true);
   const [path, setPath] = useState("~/");
   const [location, setLocation] = useState("~/");
   const folders = useEnvironmentQuery(
@@ -41,6 +42,9 @@ export function RepositoryFolderPicker({
     setLocation(next);
   };
   const current = folders.data;
+  const entries = (current?.entries ?? []).filter(
+    (entry) => !hideHidden || !entry.name.startsWith("."),
+  );
   const parent = current
     ? getBrowseParentPath(ensureBrowseDirectoryPath(current.parentPath))
     : null;
@@ -90,6 +94,20 @@ export function RepositoryFolderPicker({
               />
               <ControlPill label="Home" onPress={() => navigate("~/")} />
             </View>
+            <Pressable
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: hideHidden }}
+              accessibilityLabel="Hide hidden files and folders"
+              className="min-h-11 flex-row items-center gap-2"
+              onPress={() => setHideHidden((hidden) => !hidden)}
+            >
+              <View
+                className={`size-5 items-center justify-center rounded border ${hideHidden ? "border-primary bg-primary" : "border-border"}`}
+              >
+                {hideHidden && <Text className="text-xs text-primary-foreground">✓</Text>}
+              </View>
+              <Text className="flex-1 text-sm">Hide hidden files and folders</Text>
+            </Pressable>
             {folders.isPending && <Text>Loading folders…</Text>}
             {folders.error && (
               <Text accessibilityRole="alert" className="text-destructive">
@@ -107,7 +125,7 @@ export function RepositoryFolderPicker({
           >
             {current && !folders.error && (
               <>
-                {current.entries.map((entry) => (
+                {entries.map((entry) => (
                   <ControlPill
                     key={entry.fullPath}
                     label={entry.name}
@@ -116,8 +134,8 @@ export function RepositoryFolderPicker({
                     onPress={() => navigate(entry.fullPath)}
                   />
                 ))}
-                {!current.entries.length && (
-                  <Text className="text-muted-foreground">No subfolders.</Text>
+                {!entries.length && (
+                  <Text className="text-muted-foreground">No visible subfolders.</Text>
                 )}
               </>
             )}

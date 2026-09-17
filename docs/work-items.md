@@ -1,7 +1,7 @@
 # Work items
 
-Open **Work** from the sidebar or search for **Open work queue** in the command palette.
-On mobile, open **Settings → Work**. Choose the environment that owns the task; tasks and
+Open **Dashboard** from the sidebar or search for **Open queue** in the command palette.
+On mobile, open **Settings → Dashboard**. Choose the environment that owns the task; tasks and
 project assignments stay on that environment, including when you connect remotely.
 
 Use **Create task** to add a title and optional description, project and agent assignment.
@@ -9,10 +9,17 @@ New tasks enter Inbox. Edit a task to update its context, attach an existing thr
 set a parent task by its ID. A thread and parent must belong to the task's project.
 Assigning an agent records your choice; it does not start the agent.
 
-Search titles and descriptions, or filter by project, priority and source. Inbox,
-Backlog, Ready, Running, Review and Done organize the queue. Backlog also includes
-blocked and cancelled tasks, with their exact status shown. A blocked task needs a reason.
-Planning appears under Running while the agent prepares a plan.
+Search titles and descriptions, or filter by project, priority and source. The queue has
+**Inbox**, **In Progress**, **Review**, **Done** and **Archived** views. Inbox includes tasks
+in Backlog or Ready. In Progress includes planning, tasks awaiting plan approval and blocked
+tasks. Done includes cancelled tasks. Each task retains its specific status so you can see
+what needs attention. A blocked task needs a reason.
+
+Creating or attaching an agent thread moves its task to **In Progress**. Execution stays there
+until a pull request is opened from the linked thread, which moves the task to **Review**.
+When that PR is merged, the task moves to **Done**. The environment checks PRs automatically
+about once a minute, including when the PR page is closed. Closing a PR without merging it
+does not mark the task done. These transitions update the local task, not the GitHub issue.
 
 Choose a status and press **Move** to change it. To reopen a completed or cancelled task,
 move it to Inbox, Backlog or Ready first. **Archive** hides a task without deleting its
@@ -22,7 +29,7 @@ Changes appear on other connected clients. If an edit conflicts with a newer cha
 cancel the edit and open it again to load the latest version before saving. Full
 descriptions are retained even when the queue shows only a preview.
 
-Use **Clear work queue** in the queue to archive tasks across every project
+Use **Clear queue** in the queue to archive tasks across every project
 and view in the selected environment. Confirm the task count before clearing; filters
 do not limit this action. Tasks planning, running or awaiting approval stay in the queue.
 Linked threads remain available, and tasks can be recovered through **Archived → Restore**.
@@ -36,7 +43,7 @@ imported again automatically.
 
 ## Start a thread from a task
 
-Choose **New thread** on a task in the dashboard or Work queue. Select a repository, agent
+Choose **New thread** on a task in the dashboard or Queue. Select a repository, agent
 and model, then edit the prompt prepared from the task description and source links.
 GitHub tasks suggest a matching local repository when available; you can change it.
 Choose a base branch and review the short, editable branch name suggested from the task title.
@@ -67,7 +74,7 @@ resend uncertain updates.
 
 ## Activity timeline
 
-Choose **Activity** on a Work queue item, or open its plan/execution details and scroll to
+Choose **Activity** on a Queue item, or open its plan/execution details and scroll to
 **Activity**. Web, desktop and mobile show the same history for that environment, newest
 first. Use **Older** and **Newer** to page through history; **Latest activity** returns to
 live updates. Activity remains available for completed and archived tasks.
@@ -85,7 +92,7 @@ them stable while new activity arrives. Notification preferences do not hide tim
 
 ## Related workflows
 
-Use the [dashboard](project-management.md#dashboard) to find work needing attention.
+Use the [queue](project-management.md#queue) to find tasks and open their linked agent threads.
 Import context from [GitHub](github-integration.md) or [Slack](slack-integration.md),
 then [plan, approve and execute](agent-orchestration.md). Follow results in
 [Notifications](notifications.md).

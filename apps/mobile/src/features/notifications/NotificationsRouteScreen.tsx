@@ -238,9 +238,7 @@ function NotificationCenter({ environment }: { environment: EnvironmentPresentat
           environmentId={environmentId}
           id={workItemId}
           onClose={() => setWorkItemId(null)}
-          reviewsSupported={capabilities?.workReviews}
           executionSupported={capabilities?.workExecutions}
-          pullRequestsSupported={capabilities?.workPullRequests}
         />
       )}
     </ScrollView>

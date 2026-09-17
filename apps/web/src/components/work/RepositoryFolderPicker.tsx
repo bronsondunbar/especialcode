@@ -10,6 +10,7 @@ import { filesystemEnvironment } from "../../state/filesystem";
 import { useEnvironmentQuery } from "../../state/query";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { Checkbox } from "../ui/checkbox";
 import {
   Dialog,
   DialogPopup,
@@ -33,6 +34,7 @@ export function RepositoryFolderPicker({
 }) {
   const environment = useEnvironment(environmentId);
   const [open, setOpen] = useState(false);
+  const [hideHidden, setHideHidden] = useState(true);
   const [picking, setPicking] = useState(false);
   const [path, setPath] = useState("~/");
   const [location, setLocation] = useState("~/");
@@ -85,6 +87,9 @@ export function RepositoryFolderPicker({
     setOpen(true);
   };
   const current = folders.data;
+  const entries = (current?.entries ?? []).filter(
+    (entry) => !hideHidden || !entry.name.startsWith("."),
+  );
   const parent = current
     ? getBrowseParentPath(ensureBrowseDirectoryPath(current.parentPath))
     : null;
@@ -151,6 +156,10 @@ export function RepositoryFolderPicker({
                 Home
               </Button>
             </div>
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox checked={hideHidden} onCheckedChange={setHideHidden} />
+              Hide hidden files and folders
+            </label>
             {folders.isPending && (
               <p role="status" className="text-sm text-muted-foreground">
                 Loading folders…
@@ -168,7 +177,7 @@ export function RepositoryFolderPicker({
                   className="grid max-h-64 min-h-32 content-start gap-1 overflow-y-auto rounded-lg border p-1"
                   aria-label="Folders"
                 >
-                  {current.entries.map((entry) => (
+                  {entries.map((entry) => (
                     <Button
                       type="button"
                       key={entry.fullPath}
@@ -181,8 +190,8 @@ export function RepositoryFolderPicker({
                       <span className="truncate">{entry.name}</span>
                     </Button>
                   ))}
-                  {!current.entries.length && (
-                    <p className="p-3 text-sm text-muted-foreground">No subfolders.</p>
+                  {!entries.length && (
+                    <p className="p-3 text-sm text-muted-foreground">No visible subfolders.</p>
                   )}
                 </div>
               </>

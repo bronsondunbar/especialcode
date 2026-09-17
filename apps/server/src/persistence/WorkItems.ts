@@ -181,6 +181,21 @@ export const makeWorkItemRepository = Effect.gen(function* () {
   });
   return {
     get,
+    withUnavailableThread: Effect.fn("WorkItemRepository.withUnavailableThread")(function* (
+      threadId?: string,
+    ) {
+      const rows = yield* sql<{ record_json: string }>`SELECT w.record_json FROM work_items w
+        LEFT JOIN projection_threads t ON t.thread_id=json_extract(w.record_json,'$.agentThreadId')
+        WHERE json_extract(w.record_json,'$.agentThreadId') IS NOT NULL
+          AND (t.thread_id IS NULL OR t.deleted_at IS NOT NULL)
+          AND ${threadId === undefined ? sql`1=1` : sql`json_extract(w.record_json,'$.agentThreadId')=${threadId}`}`;
+      return yield* Effect.forEach(rows, (row) => decodeItem(row.record_json));
+    }),
+    hasActiveExecution: Effect.fn("WorkItemRepository.hasActiveExecution")(function* (id: string) {
+      const rows = yield* sql`SELECT 1 FROM work_item_executions WHERE work_item_id=${id}
+        AND status IN ('preparing','running','stopping','validating','publishing') LIMIT 1`;
+      return rows.length > 0;
+    }),
     deletedReceipt,
     isDeleted,
     isResourceDeleted,

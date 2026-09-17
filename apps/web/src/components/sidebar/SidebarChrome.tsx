@@ -3,7 +3,7 @@ import { WorkspaceUpdatesIndicator } from "./WorkspaceUpdatesIndicator";
 import {
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
-  ClipboardListIcon,
+  LayoutDashboardIcon,
   GitPullRequestIcon,
   SettingsIcon,
 } from "lucide-react";
@@ -119,11 +119,11 @@ const SidebarWorkspaceNavigation = memo(function SidebarWorkspaceNavigation() {
               aria-current={pathname === "/work" ? "page" : undefined}
               onClick={() => {
                 closeMobileSidebar();
-                void navigate({ to: "/work", search: { tab: "dashboard" } });
+                void navigate({ to: "/work", search: { tab: "queue" } });
               }}
             >
-              <ClipboardListIcon />
-              <span>Work</span>
+              <LayoutDashboardIcon />
+              <span>Dashboard</span>
               <WorkspaceUpdatesIndicator
                 section="work"
                 active={pathname === "/work"}

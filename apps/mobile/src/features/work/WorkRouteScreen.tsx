@@ -1,12 +1,9 @@
+import { WorkDescriptionPreview } from "./WorkDescriptionPreview";
+import { WorkAgentActions } from "./WorkAgentActions";
 import { VercelSettingsPanel } from "../vercel/VercelSettingsPanel";
 import { ClearWorkQueueButton } from "./ClearWorkQueueButton";
-import { WorkTaskThreadButton } from "./WorkTaskThreadButton";
-import { WorkDashboardPanel } from "./WorkDashboardPanel";
 import { WorkAutomationPanel } from "./WorkAutomationPanel";
-import { WorkActivityPanel } from "./WorkActivityPanel";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { SlackPanel } from "./SlackPanel";
-import { WorkPlanPanel } from "./WorkPlanPanel";
 import { GitHubIssuesPanel } from "./GitHubIssuesPanel";
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigation } from "@react-navigation/native";
@@ -29,7 +26,7 @@ import {
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import { useDeferredValue, useRef, useState } from "react";
-import { Modal, Platform, Pressable, RefreshControl, ScrollView, View } from "react-native";
+import { Platform, Pressable, RefreshControl, ScrollView, View } from "react-native";
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
 import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
 import { ControlPill, ControlPillMenu } from "../../components/ControlPill";
@@ -46,7 +43,10 @@ type Command = WorkItemMutation extends infer T
     ? Omit<T, "commandId">
     : never
   : never;
-const label = (value: string) => value.replaceAll("_", " ").replace(/^./, (c) => c.toUpperCase());
+const label = (value: string) =>
+  value === "running"
+    ? "In Progress"
+    : value.replaceAll("_", " ").replace(/^./, (c) => c.toUpperCase());
 
 function Choice({
   title,
@@ -81,7 +81,7 @@ export function AutomationSettingsRouteScreen() {
   return <WorkRouteScreen initialTab="automations" />;
 }
 
-export function WorkRouteScreen({ initialTab = "dashboard" }: { initialTab?: string }) {
+export function WorkRouteScreen({ initialTab = "queue" }: { initialTab?: string }) {
   const navigation = useNavigation();
   const { environments } = useEnvironments();
   const supported = environments.filter(
@@ -90,15 +90,11 @@ export function WorkRouteScreen({ initialTab = "dashboard" }: { initialTab?: str
   const [requestedTab, setTab] = useState(initialTab);
   const [selected, setSelected] = useState<string>("");
   const environment = supported.find((item) => item.environmentId === selected) ?? supported[0];
-  const tab =
-    requestedTab === "dashboard" &&
-    !environment?.serverConfig?.environment.capabilities.workDashboard
-      ? "queue"
-      : requestedTab;
+  const tab = requestedTab === "dashboard" ? "queue" : requestedTab;
   return (
     <View className="flex-1 bg-background">
       {Platform.OS === "android" && (
-        <AndroidScreenHeader title="Work" onBack={() => navigation.goBack()} />
+        <AndroidScreenHeader title="Dashboard" onBack={() => navigation.goBack()} />
       )}
       {supported.length > 1 && (
         <View className="p-3">
@@ -112,10 +108,7 @@ export function WorkRouteScreen({ initialTab = "dashboard" }: { initialTab?: str
       )}
       {environment && (
         <View className="flex-row flex-wrap gap-2 px-4 py-2">
-          {environment.serverConfig?.environment.capabilities.workDashboard && (
-            <ControlPill variant="pill" label="Dashboard" onPress={() => setTab("dashboard")} />
-          )}
-          <ControlPill label="Work Queue" onPress={() => setTab("queue")} />
+          <ControlPill label="Queue" onPress={() => setTab("queue")} />
           {environment.serverConfig?.environment.capabilities.slack && (
             <ControlPill label="Slack" onPress={() => setTab("slack")} />
           )}
@@ -128,12 +121,8 @@ export function WorkRouteScreen({ initialTab = "dashboard" }: { initialTab?: str
         </View>
       )}
       {environment &&
-      tab === "dashboard" &&
-      environment.serverConfig?.environment.capabilities.workDashboard ? (
-        <WorkDashboardPanel key={environment.environmentId} environment={environment} />
-      ) : environment &&
-        tab === "automations" &&
-        environment.serverConfig?.environment.capabilities.workAutomations ? (
+      tab === "automations" &&
+      environment.serverConfig?.environment.capabilities.workAutomations ? (
         <WorkAutomationPanel
           autonomousSupported={
             environment.serverConfig?.environment.capabilities.autonomousWork === true
@@ -152,10 +141,6 @@ export function WorkRouteScreen({ initialTab = "dashboard" }: { initialTab?: str
           executionSupported={
             environment.serverConfig?.environment.capabilities.workExecutions === true
           }
-          pullRequestsSupported={
-            environment.serverConfig?.environment.capabilities.workPullRequests === true
-          }
-          reviewsSupported={environment.serverConfig?.environment.capabilities.workReviews === true}
         />
       ) : environment &&
         tab === "github" &&
@@ -184,12 +169,11 @@ export function WorkRouteScreen({ initialTab = "dashboard" }: { initialTab?: str
 }
 
 function Queue({ environment }: { environment: EnvironmentPresentation }) {
+  const navigation = useNavigation();
   const environmentId: EnvironmentId = environment.environmentId;
   const projects = useAtomValue(environmentProjects.projectsAtom).filter(
     (project) => project.environmentId === environmentId,
   );
-  const [activityId, setActivityId] = useState<WorkItemId | null>(null);
-  const [planningId, setPlanningId] = useState<WorkItemId | null>(null);
   const [view, setView] = useState("inbox");
   const [search, setSearch] = useState("");
   const query = useDeferredValue(search);
@@ -268,37 +252,8 @@ function Queue({ environment }: { environment: EnvironmentPresentation }) {
       contentContainerClassName="gap-4 p-4 pb-12"
       refreshControl={<RefreshControl refreshing={result.isPending} onRefresh={result.refresh} />}
     >
-      {activityId && (
-        <Modal visible animationType="slide" onRequestClose={() => setActivityId(null)}>
-          <SafeAreaView className="flex-1 bg-background">
-            <ScrollView contentContainerClassName="gap-4 p-4">
-              <ControlPill label="Close activity" onPress={() => setActivityId(null)} />
-              <WorkActivityPanel
-                environmentId={environmentId}
-                id={activityId}
-                onNavigate={() => setActivityId(null)}
-              />
-            </ScrollView>
-          </SafeAreaView>
-        </Modal>
-      )}
-      {planningId && (
-        <WorkPlanPanel
-          reviewsSupported={environment.serverConfig?.environment.capabilities.workReviews === true}
-          pullRequestsSupported={
-            environment.serverConfig?.environment.capabilities.workPullRequests === true
-          }
-          executionSupported={
-            environment.serverConfig?.environment.capabilities.workExecutions === true
-          }
-          key={planningId}
-          environmentId={environmentId}
-          id={planningId}
-          onClose={() => setPlanningId(null)}
-        />
-      )}
       <View className="flex-row flex-wrap items-center justify-between gap-3">
-        <Text className="text-xl font-semibold">Your work queue</Text>
+        <Text className="text-xl font-semibold">Queue</Text>
         <View className="flex-row flex-wrap items-start gap-2">
           {(!archived || environment.serverConfig?.environment.capabilities.workItemsDelete) && (
             <ClearWorkQueueButton
@@ -441,19 +396,36 @@ function Queue({ environment }: { environment: EnvironmentPresentation }) {
       {result.data?.items.length === 0 && (
         <Text className="py-8 text-center text-muted-foreground">
           {view === "running" && !archived
-            ? "No active planning work. Open a Ready task to plan with an agent."
+            ? "No tasks in progress. Open an Inbox task to plan or execute with an agent."
             : "No tasks here. Create a task or adjust your filters."}
         </Text>
       )}
       {result.data?.items.map((item) => (
         <View key={item.id} className="gap-3 rounded-xl border border-border p-4">
           <Text className="text-lg font-semibold">{item.title}</Text>
-          <WorkTaskThreadButton environmentId={environmentId} id={item.id} />
-          {environment.serverConfig?.environment.capabilities.workActivity && (
-            <ControlPill label="Activity" onPress={() => setActivityId(item.id)} />
+          {item.agentThreadId && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Open linked thread for ${item.title}`}
+              className="self-start flex-row items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-2"
+              onPress={() => {
+                if (item.agentThreadId)
+                  navigation.navigate("Thread", { environmentId, threadId: item.agentThreadId });
+              }}
+            >
+              <View className="size-1.5 rounded-full bg-primary" />
+              <Text className="text-xs font-medium text-primary">Thread linked · Open thread</Text>
+            </Pressable>
           )}
+
           {environment.serverConfig?.environment.capabilities.workPlans && (
-            <ControlPill label="Plan / Execution" onPress={() => setPlanningId(item.id)} />
+            <WorkAgentActions
+              executionSupported={
+                environment.serverConfig?.environment.capabilities.workExecutions === true
+              }
+              environmentId={environmentId}
+              id={item.id}
+            />
           )}
           <Text className="text-sm text-muted-foreground">
             {label(item.source)} ·{" "}
@@ -475,11 +447,7 @@ function Queue({ environment }: { environment: EnvironmentPresentation }) {
               )?.displayName ?? item.assignedAgent}
             </Text>
           )}
-          {item.bodyPreview && (
-            <Text numberOfLines={4} className="text-muted-foreground">
-              {item.bodyPreview}
-            </Text>
-          )}
+          {item.bodyPreview && <WorkDescriptionPreview text={item.bodyPreview} />}
           {item.failureReason && <Text className="text-destructive">{item.failureReason}</Text>}
           {!item.archivedAt && (
             <Move

@@ -74,6 +74,7 @@ export type WorkPlanMutation = typeof WorkPlanMutation.Type;
 export const WorkPlanState = Schema.Struct({
   item: WorkItem,
   plan: Schema.NullOr(WorkPlan),
+  threadAvailable: Schema.optionalKey(Schema.Boolean),
   agents: Schema.Array(ServerProvider),
 });
 export class WorkPlanError extends Schema.TaggedError<WorkPlanError>()("WorkPlanError", {
